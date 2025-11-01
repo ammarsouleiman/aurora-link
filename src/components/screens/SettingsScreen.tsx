@@ -69,7 +69,7 @@ export function SettingsScreen({ currentUser, onBack, onUserUpdate }: SettingsSc
 
     setUploading(true);
     const result = await uploadApi.uploadFile(file, 'avatar');
-    
+
     if (result.success && result.data?.url) {
       setAvatarUrl(result.data.url);
       const updateResult = await profileApi.update({ avatar_url: result.data.url });
@@ -79,9 +79,13 @@ export function SettingsScreen({ currentUser, onBack, onUserUpdate }: SettingsSc
           avatar_url: result.data.url,
         });
         toast.success('Profile photo updated');
+      } else {
+        toast.error('فشل تحديث البروفايل بالصورة الجديدة.');
       }
+    } else {
+      toast.error(result.error || 'فشل رفع صورة البروفايل.');
     }
-    
+
     setUploading(false);
   };
 
