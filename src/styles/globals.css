@@ -1,6 +1,6 @@
 @custom-variant xs (@media (min-width: 475px));
 
-/* AuroraLink - Professional Messaging Platform */
+/* AuroraLink v1.6.0 - Build 8.0.0 - Pure Build (No Motion/CDN) */
 
 /* PERMANENT LIGHT MODE ENFORCEMENT - Dark mode is completely disabled */
 html, body, #root, .dark {
@@ -393,6 +393,46 @@ input[type="search"]:not(:placeholder-shown) ~ .search-icon-modern {
   to { transform: rotate(360deg); }
 }
 
+@keyframes slideInUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes slideInDown {
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes scaleOut {
+  from { transform: scale(1); opacity: 1; }
+  to { transform: scale(0.95); opacity: 0; }
+}
+
+.animate-slide-in-up {
+  animation: slideInUp 300ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.animate-slide-in-down {
+  animation: slideInDown 300ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.animate-fade-out {
+  animation: fadeOut 200ms ease-out;
+}
+
+.animate-scale-out {
+  animation: scaleOut 200ms ease-out;
+}
+
+.animate-pulse-slow {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
 /* WhatsApp-style message appear animation */
 @keyframes messageAppear {
   from {
@@ -417,6 +457,23 @@ input[type="search"]:not(:placeholder-shown) ~ .search-icon-modern {
 @keyframes gradient {
   0%, 100% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
+}
+
+/* Safe area support for mobile devices */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+.pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 @keyframes story-ring-gradient {
@@ -1842,4 +1899,51 @@ img[src*="data:image"] {
   -webkit-transform: translateZ(0);
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+}
+
+/* Custom animations for CDN-free build */
+@keyframes float-slow {
+  0%, 100% {
+    transform: translate(0, 0);
+    opacity: 0.2;
+  }
+  50% {
+    transform: translate(20px, -20px);
+    opacity: 0.4;
+  }
+}
+
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 0.2;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes gradient-shift {
+  0%, 100% {
+    background: radial-gradient(circle at 20% 30%, var(--primary) 0%, transparent 60%);
+  }
+  33% {
+    background: radial-gradient(circle at 80% 70%, var(--accent) 0%, transparent 60%);
+  }
+  66% {
+    background: radial-gradient(circle at 50% 50%, var(--primary) 0%, transparent 60%);
+  }
+}
+
+.animate-float-slow {
+  animation: float-slow 15s ease-in-out infinite;
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s ease-in-out infinite;
+}
+
+.animate-gradient-shift {
+  animation: gradient-shift 20s linear infinite;
 }

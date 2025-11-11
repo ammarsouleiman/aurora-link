@@ -1,9 +1,11 @@
-import { ArrowLeft, Phone, Video, MessageCircle, Star, Ban, Trash2, UserX, User as UserIcon } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowLeft, Phone, Video, MessageCircle, Star, Ban, Trash2, UserX, User as UserIcon, UserPlus, UserMinus, X } from '../ui/icons';
 import { Button } from '../ui/button';
 import { Avatar } from '../Avatar';
 import { Separator } from '../ui/separator';
-import { motion } from 'motion/react';
 import { formatPhoneNumber } from '../../utils/phone';
+import { followApi } from '../../utils/api';
+import { toast } from '../../utils/toast';
 import type { User as UserType } from '../../utils/types';
 
 interface ProfileViewScreenProps {
@@ -15,6 +17,7 @@ interface ProfileViewScreenProps {
   onBlock?: () => void;
   onUnblock?: () => void;
   onDelete?: () => void;
+  onViewProfile?: () => void; // Navigate to enhanced profile to see posts/reels
   isBlocked?: boolean;
   lastSeen?: string;
 }
@@ -28,20 +31,78 @@ export function ProfileViewScreen({
   onBlock,
   onUnblock,
   onDelete,
+  onViewProfile,
   isBlocked = false,
   lastSeen,
 }: ProfileViewScreenProps) {
   const isOnline = user.is_online;
   const statusText = isOnline ? 'online' : (lastSeen || 'offline');
+  
+  const [followStatus, setFollowStatus] = useState<'not_following' | 'pending' | 'following'>('not_following');
+  const [followsBack, setFollowsBack] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadFollowStatus();
+  }, [user.id]);
+
+  const loadFollowStatus = async () => {
+    setLoading(true);
+    try {
+      const response = await followApi.getFollowStatus(user.id);
+      if (response.success && response.data) {
+        setFollowStatus(response.data.status || 'not_following');
+        setFollowsBack(response.data.follows_back || false);
+      }
+    } catch (error) {
+      console.error('Error loading follow status:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFollowToggle = async () => {
+    if (followStatus === 'following') {
+      // Unfollow
+      setFollowStatus('not_following');
+      const response = await followApi.unfollow(user.id);
+      if (!response.success) {
+        setFollowStatus('following');
+        toast.error('Failed to unfollow');
+      } else {
+        toast.success('Unfollowed');
+        setFollowsBack(false);
+      }
+    } else if (followStatus === 'pending') {
+      // Cancel request
+      setFollowStatus('not_following');
+      const response = await followApi.cancelFollowRequest(user.id);
+      if (!response.success) {
+        setFollowStatus('pending');
+        toast.error('Failed to cancel request');
+      } else {
+        toast.success('Follow request cancelled');
+      }
+    } else {
+      // Send follow request
+      setFollowStatus('pending');
+      const response = await followApi.follow(user.id);
+      if (!response.success) {
+        setFollowStatus('not_following');
+        toast.error('Failed to send follow request');
+      } else {
+        toast.success('Follow request sent');
+        // Reload to check if now mutual
+        await loadFollowStatus();
+      }
+    }
+  };
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
       {/* Header */}
-      <motion.div 
-        className="bg-surface border-b border-border px-4 py-3 flex items-center gap-4 shadow-sm shrink-0"
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
+      <div 
+        className="bg-surface border-b border-border px-4 py-3 flex items-center gap-4 shadow-sm shrink-0 animate-in fade-in slide-in-from-top-4 duration-300"
       >
         <Button
           variant="ghost"
@@ -56,16 +117,13 @@ export function ProfileViewScreen({
         <div className="flex-1">
           <h2 className="truncate">Contact Info</h2>
         </div>
-      </motion.div>
+      </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
         {/* Profile Photo Section - WhatsApp Style */}
-        <motion.div 
-          className="bg-surface pb-6 flex flex-col items-center"
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.4, delay: 0.1 }}
+        <div 
+          className="bg-surface pb-6 flex flex-col items-center animate-in fade-in zoom-in-95 duration-400 delay-100"
         >
           {/* Large Profile Photo - WhatsApp exact style */}
           <div className="w-full bg-background/50 flex items-center justify-center py-12 mb-6">
@@ -115,61 +173,113 @@ export function ProfileViewScreen({
           <p className="text-sm text-muted-foreground">
             {statusText}
           </p>
-        </motion.div>
+        </div>
 
         {/* Action Buttons - WhatsApp Style */}
-        <motion.div 
-          className="bg-background px-6 py-6 flex justify-center gap-6"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.2 }}
+        <div 
+          className="bg-background px-6 py-6 flex justify-center gap-6 animate-in fade-in slide-in-from-bottom-4 duration-300 delay-200"
         >
           {onSendMessage && (
-            <motion.button
+            <button
               onClick={onSendMessage}
-              className="flex flex-col items-center gap-2 group"
-              whileTap={{ scale: 0.95 }}
+              className="flex flex-col items-center gap-2 group active:scale-95 transition-transform"
             >
               <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
                 <MessageCircle className="w-6 h-6 text-primary" />
               </div>
               <span className="text-xs text-muted-foreground">Message</span>
-            </motion.button>
+            </button>
           )}
 
           {onInitiateCall && (
             <>
-              <motion.button
+              <button
                 onClick={() => onInitiateCall('voice')}
-                className="flex flex-col items-center gap-2 group"
-                whileTap={{ scale: 0.95 }}
+                className="flex flex-col items-center gap-2 group active:scale-95 transition-transform"
               >
                 <div className="w-14 h-14 rounded-full bg-success/10 flex items-center justify-center group-hover:bg-success/20 transition-colors">
                   <Phone className="w-6 h-6 text-success" />
                 </div>
                 <span className="text-xs text-muted-foreground">Audio</span>
-              </motion.button>
+              </button>
 
-              <motion.button
+              <button
                 onClick={() => onInitiateCall('video')}
-                className="flex flex-col items-center gap-2 group"
-                whileTap={{ scale: 0.95 }}
+                className="flex flex-col items-center gap-2 group active:scale-95 transition-transform"
               >
                 <div className="w-14 h-14 rounded-full bg-info/10 flex items-center justify-center group-hover:bg-info/20 transition-colors">
                   <Video className="w-6 h-6 text-info" />
                 </div>
                 <span className="text-xs text-muted-foreground">Video</span>
-              </motion.button>
+              </button>
             </>
           )}
-        </motion.div>
+        </div>
+
+        {/* Follow Status Badge */}
+        {!loading && followsBack && followStatus === 'following' && (
+          <div className="mx-6 mb-4 px-4 py-3 bg-gradient-to-r from-primary/10 to-accent/10 rounded-xl border border-primary/30 animate-in fade-in duration-300 delay-250">
+            <p className="text-sm text-center">
+              <span className="text-primary font-medium">✓ Friends</span>
+              <span className="text-muted-foreground ml-1">• You follow each other</span>
+            </p>
+          </div>
+        )}
+
+        {!loading && followsBack && followStatus !== 'following' && (
+          <div className="mx-6 mb-4 px-4 py-3 bg-muted rounded-xl animate-in fade-in duration-300 delay-250">
+            <p className="text-sm text-center text-muted-foreground">
+              Follows you
+            </p>
+          </div>
+        )}
+
+        {/* Follow & View Profile Actions */}
+        <div className="px-6 pb-4 flex gap-3 animate-in fade-in duration-300 delay-300">
+          {!loading && (
+            <button
+              onClick={handleFollowToggle}
+              className={`flex-1 px-4 py-3 rounded-xl font-medium transition-all active:scale-95 flex items-center justify-center gap-2 ${
+                followStatus === 'following'
+                  ? 'bg-muted hover:bg-muted/80 text-foreground'
+                  : followStatus === 'pending'
+                  ? 'bg-muted hover:bg-muted/80 text-muted-foreground'
+                  : 'bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white shadow-lg shadow-primary/30'
+              }`}
+            >
+              {followStatus === 'following' ? (
+                <>
+                  <UserMinus className="w-4 h-4" />
+                  <span>Following</span>
+                </>
+              ) : followStatus === 'pending' ? (
+                <>
+                  <X className="w-4 h-4" />
+                  <span>Requested</span>
+                </>
+              ) : (
+                <>
+                  <UserPlus className="w-4 h-4" />
+                  <span>Follow</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {onViewProfile && (
+            <button
+              onClick={onViewProfile}
+              className="flex-1 px-4 py-3 bg-gradient-to-r from-info/10 to-info/20 hover:from-info/20 hover:to-info/30 text-info font-medium rounded-xl transition-all active:scale-95 flex items-center justify-center gap-2"
+            >
+              <UserIcon className="w-4 h-4" />
+              <span>View Profile</span>
+            </button>
+          )}
+        </div>
 
         {/* About Section */}
-        <motion.div 
-          className="bg-surface mt-2 px-4 py-4"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3, delay: 0.3 }}
+        <div 
+          className="bg-surface mt-2 px-4 py-4 animate-in fade-in duration-300 delay-300"
         >
           <h3 className="text-sm text-primary mb-2">About</h3>
           <p className="text-base text-foreground mb-1">
@@ -184,59 +294,47 @@ export function ProfileViewScreen({
               })}
             </p>
           )}
-        </motion.div>
+        </div>
 
         {/* Phone Number Section */}
         {user.phone_number && (
-          <motion.div 
-            className="bg-surface mt-2 px-4 py-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3, delay: 0.35 }}
+          <div 
+            className="bg-surface mt-2 px-4 py-4 animate-in fade-in duration-300 delay-350"
           >
             <h3 className="text-sm text-primary mb-2">Phone</h3>
             <p className="text-base text-foreground mb-1">
               {formatPhoneNumber(user.phone_number)}
             </p>
             <p className="text-xs text-muted-foreground">Mobile</p>
-          </motion.div>
+          </div>
         )}
 
         {/* Email Section */}
         {user.email && (
-          <motion.div 
-            className="bg-surface mt-2 px-4 py-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3, delay: 0.4 }}
+          <div 
+            className="bg-surface mt-2 px-4 py-4 animate-in fade-in duration-300 delay-400"
           >
             <h3 className="text-sm text-primary mb-2">Email</h3>
             <p className="text-base text-foreground">{user.email}</p>
-          </motion.div>
+          </div>
         )}
 
         {/* Username Section */}
         {user.username && user.username !== user.email?.split('@')[0] && (
-          <motion.div 
-            className="bg-surface mt-2 px-4 py-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3, delay: 0.45 }}
+          <div 
+            className="bg-surface mt-2 px-4 py-4 animate-in fade-in duration-300 delay-450"
           >
             <h3 className="text-sm text-primary mb-2">Username</h3>
             <p className="text-base text-foreground">@{user.username}</p>
-          </motion.div>
+          </div>
         )}
 
         {/* Spacer */}
         <div className="h-4" />
 
         {/* Danger Zone - WhatsApp Style */}
-        <motion.div 
-          className="bg-surface mt-2"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3, delay: 0.5 }}
+        <div 
+          className="bg-surface mt-2 animate-in fade-in duration-300 delay-500"
         >
           {isBlocked ? (
             onUnblock && (
@@ -271,7 +369,7 @@ export function ProfileViewScreen({
               <span className="text-base text-destructive">Delete Chat</span>
             </button>
           )}
-        </motion.div>
+        </div>
 
         {/* Bottom padding */}
         <div className="h-8" />

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Check, ChevronDown, Search } from 'lucide-react';
+import { Check, ChevronDown, Search } from './ui/icons';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import {
@@ -93,7 +93,6 @@ export function PhoneInput({
             className="w-[min(320px,calc(100vw-2rem))] p-0" 
             align="start"
             sideOffset={5}
-            collisionPadding={8}
           >
             <Command>
               <CommandInput placeholder="Search country..." className="h-9 text-sm" />

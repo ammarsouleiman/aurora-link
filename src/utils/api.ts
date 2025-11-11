@@ -1,5 +1,4 @@
-import { projectId, publicAnonKey } from './supabase/info';
-import { createClient } from './supabase/client';
+import { createClient, projectId, publicAnonKey, getAccessToken } from './supabase/direct-api-client';
 import { getValidAccessToken } from './token-manager';
 import { saveToCache, getFromCache } from './offline-cache';
 import type { ApiResponse } from './types';
@@ -14,11 +13,22 @@ async function makeRequest<T = any>(
   useCache = true // Use offline cache when server is unavailable
 ): Promise<ApiResponse<T>> {
   try {
-    console.log(`[API] ========== REQUEST START: ${endpoint} ==========`);
-    
-    // Public endpoints that don't require authentication
+    // CRITICAL: If nuclear clear just happened, block all non-public API calls
+    const nuclearClearInProgress = sessionStorage.getItem('nuclear_clear_in_progress');
     const publicEndpoints = ['/auth/signup', '/auth/login', '/health'];
     const isPublicEndpoint = publicEndpoints.some(path => endpoint.includes(path));
+    
+    if (nuclearClearInProgress === 'true' && !isPublicEndpoint) {
+      console.warn(`[API] 🚨 Blocking ${endpoint} - nuclear clear in progress`);
+      console.warn('[API] User must log in again before making API calls');
+      return {
+        success: false,
+        error: 'Session cleared. Please log in again.',
+        requiresReauth: true,
+      };
+    }
+    
+    console.log(`[API] ========== REQUEST START: ${endpoint} ==========`);
     
     // Cacheable GET endpoints
     const cacheableEndpoints = ['/conversations/', '/profile/'];
@@ -39,13 +49,48 @@ async function makeRequest<T = any>(
     // For protected endpoints, this will ensure we have a valid token
     const accessToken = await getValidAccessToken();
     
+    // CRITICAL: Double-check that we're not using a token after nuclear clear
+    if (accessToken && (nuclearClearInProgress === 'true')) {
+      console.error('[API] 🚨 CRITICAL: Token exists but nuclear clear is in progress!');
+      console.error('[API] This should never happen - clearing token and blocking request');
+      console.error('[API] The user must complete login first');
+      return {
+        success: false,
+        error: 'Session is being reset. Please wait for login screen.',
+        requiresReauth: true,
+      };
+    }
+    
     // Handle missing token for protected endpoints
     if (!accessToken && !isPublicEndpoint) {
-      console.warn(`[API] ⚠️  No access token available for: ${endpoint}`);
+      // First check if we actually have a session
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        // No session means user is logged out - this is expected
+        console.log(`[API] No session available - user may need to log in`);
+        return {
+          success: false,
+          error: 'Authentication required. Please log in.',
+          requiresReauth: true,
+        };
+      }
+      
+      // We have a session but token manager couldn't get token
+      // This might be a temporary issue, retry once
+      if (retryCount === 0) {
+        console.warn(`[API] ⚠️  No access token on first attempt for: ${endpoint}, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 200));
+        return makeRequest(endpoint, options, 1, silent, useCache);
+      }
+      
+      console.warn(`[API] ⚠️  No access token available for: ${endpoint} after retry`);
       console.log(`[API] getAccessToken() returned null - session may have expired`);
       return {
         success: false,
-        error: 'Authentication token not available. Please try again.',
+        error: 'Authentication token not available. Please try logging in again.',
+        requiresReauth: true,
       };
     }
     
@@ -100,13 +145,48 @@ async function makeRequest<T = any>(
       };
     }
 
-    // Handle 401 Unauthorized - retry once with token refresh
-    if (response.status === 401 && retryCount < 1 && !isPublicEndpoint) {
-      console.warn(`[API] Got 401, will retry with fresh token...`);
+    // Handle 401 Unauthorized - try to refresh token first
+    if (response.status === 401 && !isPublicEndpoint) {
+      console.warn(`[API] ⚠️  401 Unauthorized on ${endpoint}`);
       
-      // Wait a moment and retry (token manager will handle refresh)
-      await new Promise(resolve => setTimeout(resolve, 300));
-      return makeRequest(endpoint, options, retryCount + 1, silent, useCache);
+      // Try to refresh the token first before forcing logout
+      if (retryCount === 0) {
+        console.log('[API] 🔄 Attempting to refresh session...');
+        
+        try {
+          const supabase = createClient();
+          const { data: { session }, error: refreshError } = await supabase.auth.refreshSession();
+          
+          if (!refreshError && session?.access_token) {
+            console.log('[API] ✅ Session refreshed successfully, retrying request...');
+            // Retry the request with the new token
+            return makeRequest(endpoint, options, retryCount + 1, silent, useCache);
+          } else {
+            console.error('[API] ❌ Session refresh failed:', refreshError?.message);
+          }
+        } catch (refreshErr) {
+          console.error('[API] ❌ Error refreshing session:', refreshErr);
+        }
+      }
+      
+      // If we've already retried or refresh failed, force logout
+      console.error('[API] 🚨 Session is invalid - forcing logout');
+      console.error('[API] Please log in again with your credentials');
+      
+      // Clear everything
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      // Force reload to login screen after a brief delay
+      setTimeout(() => {
+        window.location.href = window.location.origin;
+      }, 1500);
+      
+      return {
+        success: false,
+        error: 'Your session has expired. Please log in again.',
+        requiresReauth: true,
+      };
     }
 
     if (!response.ok) {
@@ -116,11 +196,44 @@ async function makeRequest<T = any>(
         console.error(`[API Error] ${endpoint} (${response.status}):`, errorText);
       }
       
-      // Special handling for 401 errors
-      if (response.status === 401) {
+      // Check for auth-related error messages in any status code
+      if (errorText.includes('Unauthorized') || 
+          errorText.includes('Auth session missing') ||
+          errorText.includes('Invalid Refresh Token') ||
+          errorText.includes('JWT expired')) {
+        console.warn('[API] ⚠️  AUTH ERROR DETECTED IN RESPONSE');
+        console.warn('[API] Error message:', errorText);
+        
+        // Try to refresh session first
+        if (retryCount === 0) {
+          console.log('[API] 🔄 Attempting to refresh session...');
+          
+          try {
+            const supabase = createClient();
+            const { data: { session }, error: refreshError } = await supabase.auth.refreshSession();
+            
+            if (!refreshError && session?.access_token) {
+              console.log('[API] ✅ Session refreshed, retrying request...');
+              return makeRequest(endpoint, options, retryCount + 1, silent, useCache);
+            }
+          } catch (refreshErr) {
+            console.error('[API] ❌ Error refreshing session:', refreshErr);
+          }
+        }
+        
+        // If refresh failed, force logout
+        console.error('[API] 🔴 Session cannot be recovered - logging out');
+        localStorage.clear();
+        sessionStorage.clear();
+        
+        setTimeout(() => {
+          window.location.href = window.location.origin;
+        }, 1500);
+        
         return {
           success: false,
-          error: 'Authentication failed. Please log in again.',
+          error: 'Authentication error. Please log in again.',
+          requiresReauth: true,
         };
       }
       
@@ -290,6 +403,14 @@ export const profileApi = {
     
   get: (userId: string) =>
     makeRequest(`/profile/${userId}`),
+    
+  repairCounts: () =>
+    makeRequest('/follow/repair-counts', {
+      method: 'POST',
+    }),
+    
+  diagnostic: () =>
+    makeRequest('/profile/diagnostic'),
 };
 
 // Block/Unblock API
@@ -465,6 +586,238 @@ export const storiesApi = {
   // Manual cleanup of expired stories
   cleanup: () =>
     makeRequest('/stories/cleanup', {
+      method: 'POST',
+    }),
+};
+
+// Account API
+export const accountApi = {
+  // Delete user account and all associated data
+  deleteAccount: () =>
+    makeRequest('/account/delete', {
+      method: 'POST',
+    }),
+};
+
+// Feed API (Instagram-style posts)
+export const feedApi = {
+  // Get feed of posts from followed users
+  getFeed: () =>
+    makeRequest('/feed'),
+    
+  // Get explore feed (all posts)
+  getExploreFeed: () =>
+    makeRequest('/feed/explore'),
+    
+  // Get posts from a specific user
+  getUserPosts: (userId: string) =>
+    makeRequest(`/feed/user/${userId}`),
+    
+  // Get a single post
+  getPost: (postId: string) =>
+    makeRequest(`/feed/post/${postId}`),
+    
+  // Get user profile with stats
+  getUserProfile: (userId: string) =>
+    makeRequest(`/feed/profile/${userId}`),
+    
+  // Create a new post
+  createPost: async (data: {
+    file: File;
+    type: 'photo' | 'reel';
+    caption: string;
+    location?: string;
+  }) => {
+    const formData = new FormData();
+    formData.append('file', data.file);
+    formData.append('type', data.type);
+    formData.append('caption', data.caption);
+    if (data.location) {
+      formData.append('location', data.location);
+    }
+    
+    const accessToken = await getAccessToken();
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/feed/create`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken || publicAnonKey}`,
+        },
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        return { success: false, error: errorText };
+      }
+      
+      const responseData = await response.json();
+      return { success: true, data: responseData };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Upload failed',
+      };
+    }
+  },
+    
+  // Delete a post
+  deletePost: (postId: string) =>
+    makeRequest(`/feed/post/${postId}`, {
+      method: 'DELETE',
+    }),
+    
+  // Like a post
+  likePost: (postId: string) =>
+    makeRequest('/feed/like', {
+      method: 'POST',
+      body: JSON.stringify({ post_id: postId }),
+    }),
+    
+  // Unlike a post
+  unlikePost: (postId: string) =>
+    makeRequest('/feed/unlike', {
+      method: 'POST',
+      body: JSON.stringify({ post_id: postId }),
+    }),
+    
+  // Save a post
+  savePost: (postId: string) =>
+    makeRequest('/feed/save', {
+      method: 'POST',
+      body: JSON.stringify({ post_id: postId }),
+    }),
+    
+  // Unsave a post
+  unsavePost: (postId: string) =>
+    makeRequest('/feed/unsave', {
+      method: 'POST',
+      body: JSON.stringify({ post_id: postId }),
+    }),
+    
+  // Get comments on a post
+  getComments: (postId: string) =>
+    makeRequest(`/feed/post/${postId}/comments`),
+    
+  // Add a comment
+  addComment: (postId: string, text: string) =>
+    makeRequest('/feed/comment', {
+      method: 'POST',
+      body: JSON.stringify({ post_id: postId, text }),
+    }),
+    
+  // Delete a comment
+  deleteComment: (commentId: string) =>
+    makeRequest('/feed/comment/delete', {
+      method: 'POST',
+      body: JSON.stringify({ comment_id: commentId }),
+    }),
+    
+  // Get reels feed
+  getReels: () =>
+    makeRequest('/feed/reels'),
+    
+  // Get notifications
+  getNotifications: () =>
+    makeRequest('/notifications'),
+    
+  // Mark notification as read
+  markNotificationAsRead: (notificationId: string) =>
+    makeRequest(`/notifications/${notificationId}/read`, {
+      method: 'POST',
+    }),
+    
+  // Mark all notifications as read
+  markAllNotificationsAsRead: () =>
+    makeRequest('/notifications/read-all', {
+      method: 'POST',
+    }),
+    
+  // Follow user
+  followUser: (userId: string) =>
+    makeRequest('/follow', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    }),
+    
+  // Unfollow user
+  unfollowUser: (userId: string) =>
+    makeRequest('/unfollow', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    }),
+};
+
+// Follow API
+export const followApi = {
+  // Send follow request to a user
+  follow: (userId: string) =>
+    makeRequest('/follow', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    }),
+    
+  // Accept follow request
+  acceptFollowRequest: (followerId: string) =>
+    makeRequest('/follow/accept', {
+      method: 'POST',
+      body: JSON.stringify({ follower_id: followerId }),
+    }),
+    
+  // Reject follow request
+  rejectFollowRequest: (followerId: string) =>
+    makeRequest('/follow/reject', {
+      method: 'POST',
+      body: JSON.stringify({ follower_id: followerId }),
+    }),
+    
+  // Cancel follow request (by requester)
+  cancelFollowRequest: (userId: string) =>
+    makeRequest('/follow/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    }),
+    
+  // Get pending follow requests
+  getFollowRequests: () =>
+    makeRequest('/follow/requests'),
+    
+  // Unfollow a user
+  unfollow: (userId: string) =>
+    makeRequest('/unfollow', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    }),
+    
+  // Get followers
+  getFollowers: (userId: string) =>
+    makeRequest(`/followers/${userId}`),
+    
+  // Get following
+  getFollowing: (userId: string) =>
+    makeRequest(`/following/${userId}`),
+    
+  // Get follow status
+  getFollowStatus: (userId: string) =>
+    makeRequest(`/follow/status/${userId}`),
+    
+  // Repair follow counts for current user or specified user
+  repairCounts: (userId?: string) =>
+    makeRequest('/follow/repair-counts', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    }),
+    
+  // Repair all users' counts (admin function)
+  repairAllCounts: () =>
+    makeRequest('/follow/repair-all-counts', {
+      method: 'POST',
+    }),
+    
+  // Initialize counts for current user if missing
+  initCounts: () =>
+    makeRequest('/follow/init-counts', {
       method: 'POST',
     }),
 };

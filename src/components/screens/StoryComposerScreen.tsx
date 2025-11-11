@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { X, Image as ImageIcon, Type, Upload, Check, Trash2, Plus, Send } from 'lucide-react';
+import { X, Image as ImageIcon, Type, Upload, Check, Trash2, Plus, Send } from '../ui/icons';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
@@ -7,7 +7,6 @@ import { toast } from '../../utils/toast';
 import { storiesApi, uploadApi } from '../../utils/api';
 import { ImageWithFallback } from '../figma/ImageWithFallback';
 import type { User } from '../../utils/types';
-import { motion, AnimatePresence } from 'motion/react';
 
 interface StoryComposerScreenProps {
   currentUser: User;
@@ -283,24 +282,18 @@ export function StoryComposerScreen({
 
       {/* Content */}
       <div className="pt-16 h-full flex flex-col overflow-hidden">
-        <AnimatePresence mode="wait">
-          {mode === 'select' && (
-            <motion.div
-              key="select"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex items-center justify-center p-6"
-            >
-              <div className="w-full max-w-md space-y-4">
-                {/* Show queue button if there are stories */}
-                {storyQueue.length > 0 && (
-                  <motion.button
-                    initial={{ opacity: 0, y: -20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    onClick={() => setMode('queue')}
-                    className="w-full h-20 rounded-2xl bg-primary/10 border-2 border-primary flex items-center justify-between px-6 hover:bg-primary/20 transition-all group"
-                  >
+        {mode === 'select' && (
+          <div
+            key="select"
+            className="flex-1 flex items-center justify-center p-6 animate-in fade-in duration-300"
+          >
+            <div className="w-full max-w-md space-y-4">
+              {/* Show queue button if there are stories */}
+              {storyQueue.length > 0 && (
+                <button
+                  onClick={() => setMode('queue')}
+                  className="w-full h-20 rounded-2xl bg-primary/10 border-2 border-primary flex items-center justify-between px-6 hover:bg-primary/20 transition-all group animate-in fade-in slide-in-from-top-4 duration-300"
+                >
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center">
                         <span className="text-white font-bold text-lg">{storyQueue.length}</span>
@@ -315,35 +308,29 @@ export function StoryComposerScreen({
                     <svg className="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
-                  </motion.button>
+                  </button>
                 )}
 
-                <motion.button
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.05 }}
+                <button
                   onClick={() => setMode('text')}
-                  className="w-full h-32 rounded-2xl bg-gradient-to-br from-primary to-accent flex flex-col items-center justify-center gap-3 hover:shadow-lg transition-all group"
+                  className="w-full h-32 rounded-2xl bg-gradient-to-br from-primary to-accent flex flex-col items-center justify-center gap-3 hover:shadow-lg transition-all group animate-in fade-in slide-in-from-bottom-4 duration-300 delay-75"
                 >
                   <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center group-hover:scale-110 transition-transform">
                     <Type className="w-8 h-8 text-white" />
                   </div>
                   <span className="text-white font-medium">Text Status</span>
-                </motion.button>
+                </button>
 
-                <motion.button
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 }}
+                <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full h-32 rounded-2xl bg-surface border-2 border-dashed border-border flex flex-col items-center justify-center gap-3 hover:border-primary hover:bg-hover-primary transition-all group"
+                  className="w-full h-32 rounded-2xl bg-surface border-2 border-dashed border-border flex flex-col items-center justify-center gap-3 hover:border-primary hover:bg-hover-primary transition-all group animate-in fade-in slide-in-from-bottom-4 duration-300 delay-150"
                 >
                   <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center group-hover:scale-110 transition-transform">
                     <ImageIcon className="w-8 h-8 text-muted-foreground group-hover:text-primary" />
                   </div>
                   <span className="text-foreground font-medium">Photo or Video</span>
                   <span className="text-xs text-muted-foreground">Select multiple files</span>
-                </motion.button>
+                </button>
 
                 <input
                   ref={fileInputRef}
@@ -354,16 +341,13 @@ export function StoryComposerScreen({
                   multiple
                 />
               </div>
-            </motion.div>
+            </div>
           )}
 
           {mode === 'text' && (
-            <motion.div
+            <div
               key="text"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="flex-1 flex flex-col"
+              className="flex-1 flex flex-col animate-in fade-in slide-in-from-right-4 duration-300"
             >
               {/* Preview */}
               <div
@@ -430,16 +414,13 @@ export function StoryComposerScreen({
                   </Button>
                 </div>
               </div>
-            </motion.div>
+            </div>
           )}
 
           {mode === 'media' && previewUrl && selectedFile && (
-            <motion.div
+            <div
               key="media"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="flex-1 flex flex-col"
+              className="flex-1 flex flex-col animate-in fade-in slide-in-from-right-4 duration-300"
             >
               {/* Preview */}
               <div className="flex-1 bg-black flex items-center justify-center p-4 overflow-hidden">
@@ -506,27 +487,21 @@ export function StoryComposerScreen({
                   </Button>
                 </div>
               </div>
-            </motion.div>
+            </div>
           )}
 
           {mode === 'queue' && (
-            <motion.div
+            <div
               key="queue"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col"
+              className="flex-1 flex flex-col animate-in fade-in duration-300"
             >
               {/* Queue List */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {storyQueue.map((story, index) => (
-                  <motion.div
+                  <div
                     key={story.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, x: -100 }}
-                    transition={{ delay: index * 0.05 }}
-                    className="bg-surface rounded-xl border border-border overflow-hidden group hover:border-primary/50 transition-colors"
+                    className="bg-surface rounded-xl border border-border overflow-hidden group hover:border-primary/50 transition-colors animate-in fade-in slide-in-from-bottom-4 duration-300"
+                    style={{animationDelay: `${index * 50}ms`}}
                   >
                     <div className="flex items-center gap-3 p-3">
                       {/* Preview Thumbnail */}
@@ -582,7 +557,7 @@ export function StoryComposerScreen({
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
-                  </motion.div>
+                  </div>
                 ))}
               </div>
 
@@ -598,9 +573,8 @@ export function StoryComposerScreen({
                   Add More Stories
                 </Button>
               </div>
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>
       </div>
     </div>
   );

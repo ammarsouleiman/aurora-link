@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Play, Pause } from 'lucide-react';
+import { Play, Pause } from './ui/icons';
 import { Button } from './ui/button';
 
 interface VoiceMessagePlayerProps {

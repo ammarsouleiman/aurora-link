@@ -167,3 +167,42 @@ export function formatMessageTime(timestamp: string): string {
   });
   return `${dateStr} ${formatTime(messageTime)}`;
 }
+
+/**
+ * Format distance to now (for notifications)
+ * - "just now" for less than 1 minute
+ * - "Xm" for minutes
+ * - "Xh" for hours
+ * - "Xd" for days
+ * - "Xw" for weeks
+ */
+export function formatDistanceToNow(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const diffWeeks = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 7));
+
+  if (diffMinutes < 1) {
+    return 'just now';
+  }
+
+  if (diffMinutes < 60) {
+    return `${diffMinutes}m`;
+  }
+
+  if (diffHours < 24) {
+    return `${diffHours}h`;
+  }
+
+  if (diffDays < 7) {
+    return `${diffDays}d`;
+  }
+
+  if (diffWeeks < 4) {
+    return `${diffWeeks}w`;
+  }
+
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}

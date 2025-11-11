@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, ChevronUp, MoreVertical, Send, Eye, Trash2, Heart, Smile } from 'lucide-react';
+import { X, ChevronUp, MoreVertical, Send, Eye, Trash2, Heart, Smile, Download } from '../ui/icons';
 import { Avatar } from '../Avatar';
 import { Input } from '../ui/input';
 import { toast } from '../../utils/toast';
 import { storiesApi } from '../../utils/api';
 import type { User, UserStories, Story } from '../../utils/types';
-import { motion, AnimatePresence } from 'motion/react';
 
 interface StoryViewerScreenProps {
   userStoriesList: UserStories[];
@@ -34,6 +33,10 @@ export function StoryViewerScreen({
   const [imageLoaded, setImageLoaded] = useState(false);
   const [videoLoaded, setVideoLoaded] = useState(false);
   const [touchStartY, setTouchStartY] = useState(0);
+  const [touchStartX, setTouchStartX] = useState(0);
+  const [isLongPress, setIsLongPress] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const startTimeRef = useRef<number>(Date.now());
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -203,6 +206,9 @@ export function StoryViewerScreen({
 
   // WhatsApp-style tap navigation
   const handleTap = (e: React.MouseEvent | React.TouchEvent) => {
+    // Don't navigate if it was a long press
+    if (isLongPress) return;
+    
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = clientX - rect.left;
@@ -215,21 +221,63 @@ export function StoryViewerScreen({
     }
   };
 
-  // WhatsApp-style swipe up to view viewers
+  // WhatsApp-style touch handling with long press and swipe
   const handleTouchStart = (e: React.TouchEvent) => {
     setTouchStartY(e.touches[0].clientY);
-    setIsPaused(true);
+    setTouchStartX(e.touches[0].clientX);
+    setIsLongPress(false);
+    
+    // Start long press timer (pause story on hold)
+    longPressTimer.current = setTimeout(() => {
+      setIsLongPress(true);
+      setIsPaused(true);
+      
+      // Haptic feedback on supported devices
+      if ('vibrate' in navigator) {
+        navigator.vibrate(10);
+      }
+    }, 200);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    // Cancel long press if user moves finger
+    const moveX = Math.abs(e.touches[0].clientX - touchStartX);
+    const moveY = Math.abs(e.touches[0].clientY - touchStartY);
+    
+    if (moveX > 10 || moveY > 10) {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+      }
+    }
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    const touchEndY = e.changedTouches[0].clientY;
-    const diff = touchStartY - touchEndY;
+    // Clear long press timer
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+    }
     
-    // Swipe up threshold
-    if (diff > 50 && isMyStory) {
+    const touchEndY = e.changedTouches[0].clientY;
+    const touchEndX = e.changedTouches[0].clientX;
+    const diffY = touchStartY - touchEndY;
+    const diffX = Math.abs(touchStartX - touchEndX);
+    
+    // Swipe down to close (WhatsApp style)
+    if (diffY < -100 && diffX < 50) {
+      onClose();
+      return;
+    }
+    
+    // Swipe up to view viewers (my stories only)
+    if (diffY > 50 && diffX < 50 && isMyStory) {
       loadViewers();
-    } else {
+      return;
+    }
+    
+    // Resume if it was a long press
+    if (isLongPress) {
       setIsPaused(false);
+      setIsLongPress(false);
     }
   };
 
@@ -246,6 +294,51 @@ export function StoryViewerScreen({
     }
   };
 
+  // Download story
+  const handleDownload = async () => {
+    if (!currentStory || currentStory.type === 'text') {
+      toast.error('Cannot download text stories');
+      return;
+    }
+
+    setDownloading(true);
+    setShowMenu(false);
+    
+    try {
+      // Fetch the media file
+      const response = await fetch(currentStory.media_url);
+      const blob = await response.blob();
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // Set filename based on type
+      const extension = currentStory.type === 'image' ? 'jpg' : 'mp4';
+      const timestamp = new Date().getTime();
+      link.download = `story_${timestamp}.${extension}`;
+      
+      // Trigger download
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Clean up
+      window.URL.revokeObjectURL(url);
+      
+      toast.success('Story downloaded', {
+        description: 'Saved to your downloads folder',
+        duration: 2000,
+      });
+    } catch (error) {
+      console.error('[Story] Download error:', error);
+      toast.error('Failed to download story');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   if (!currentStory) return null;
 
   return (
@@ -257,10 +350,9 @@ export function StoryViewerScreen({
             key={index}
             className="flex-1 h-[3px] bg-white/30 rounded-full overflow-hidden backdrop-blur-sm"
           >
-            <motion.div
-              className="h-full bg-white shadow-sm"
-              initial={{ width: 0 }}
-              animate={{
+            <div
+              className="h-full bg-white shadow-sm transition-all duration-100 ease-linear"
+              style={{
                 width:
                   index < currentStoryIndex
                     ? '100%'
@@ -268,7 +360,6 @@ export function StoryViewerScreen({
                     ? `${progress}%`
                     : '0%',
               }}
-              transition={{ duration: 0.1, ease: 'linear' }}
             />
           </div>
         ))}
@@ -298,14 +389,12 @@ export function StoryViewerScreen({
           </div>
 
           <div className="flex items-center gap-1 flex-shrink-0">
-            {isMyStory && (
-              <button
-                onClick={() => setShowMenu(!showMenu)}
-                className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 active:bg-white/20 transition-colors"
-              >
-                <MoreVertical className="w-5 h-5 text-white" />
-              </button>
-            )}
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 active:bg-white/20 transition-colors"
+            >
+              <MoreVertical className="w-5 h-5 text-white" />
+            </button>
             
             <button
               onClick={onClose}
@@ -317,49 +406,60 @@ export function StoryViewerScreen({
         </div>
 
         {/* Menu Dropdown - WhatsApp Style */}
-        <AnimatePresence>
-          {showMenu && isMyStory && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: -5 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: -5 }}
-              transition={{ duration: 0.15 }}
-              className="absolute top-full right-3 mt-1 bg-surface rounded-2xl shadow-2xl overflow-hidden min-w-[180px] border border-border/50"
-              onClick={() => setShowMenu(false)}
-            >
+        {showMenu && (
+          <div
+            className="absolute top-full right-3 mt-1 bg-surface rounded-2xl shadow-2xl overflow-hidden min-w-[180px] border border-border/50 animate-in fade-in zoom-in-95 slide-in-from-top-1 duration-150"
+            onClick={() => setShowMenu(false)}
+          >
+            {/* Download option for all stories (except text) */}
+            {currentStory.type !== 'text' && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDownload();
+                }}
+                disabled={downloading}
+                className="w-full px-4 py-3 flex items-center gap-3 hover:bg-hover-surface transition-colors text-left disabled:opacity-50"
+              >
+                <Download className="w-[18px] h-[18px] text-foreground" />
+                <span className="text-[15px] font-medium text-foreground">
+                  {downloading ? 'Downloading...' : 'Download'}
+                </span>
+              </button>
+            )}
+            
+            {/* Delete option only for my stories */}
+            {isMyStory && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowMenu(false);
                   handleDelete();
                 }}
-                className="w-full px-4 py-3 flex items-center gap-3 hover:bg-hover-destructive transition-colors text-left text-destructive"
+                className="w-full px-4 py-3 flex items-center gap-3 hover:bg-hover-destructive transition-colors text-left text-destructive border-t border-border/30"
               >
                 <Trash2 className="w-[18px] h-[18px]" />
                 <span className="text-[15px] font-medium">Delete</span>
               </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Story Content - Full Screen WhatsApp Style */}
       <div
-        className="absolute inset-0 flex items-center justify-center select-none"
+        className="absolute inset-0 flex items-center justify-center select-none touch-none"
         onClick={handleTap}
         onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onMouseDown={() => setIsPaused(true)}
         onMouseUp={() => setIsPaused(false)}
       >
-        <AnimatePresence mode="wait">
-          <motion.div
+        <div className="w-full h-full">
+          <div
             key={currentStory.id}
-            initial={{ opacity: 0, scale: 0.97 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.03 }}
-            transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-            className="w-full h-full flex items-center justify-center"
+            className="w-full h-full flex items-center justify-center animate-in fade-in zoom-in-95 duration-200"
           >
             {currentStory.type === 'image' && (
               <div className="w-full h-full flex items-center justify-center">
@@ -413,105 +513,105 @@ export function StoryViewerScreen({
             {/* Caption Overlay */}
             {currentStory.caption && (
               <div className="absolute bottom-24 left-0 right-0 px-4">
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-black/50 backdrop-blur-xl rounded-2xl px-4 py-3 max-w-md mx-auto border border-white/10"
-                >
+                <div className="bg-black/50 backdrop-blur-xl rounded-2xl px-4 py-3 max-w-md mx-auto border border-white/10 animate-in fade-in slide-in-from-bottom-2 duration-300">
                   <p className="text-white text-center text-[15px] leading-relaxed">
                     {currentStory.caption}
                   </p>
-                </motion.div>
+                </div>
               </div>
             )}
-          </motion.div>
-        </AnimatePresence>
+          </div>
+        </div>
       </div>
 
       {/* View Count Indicator - WhatsApp Style (My Story Only) */}
       {isMyStory && viewCount > 0 && !showViewers && (
-        <motion.button
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          onClick={loadViewers}
-          className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 bg-black/60 backdrop-blur-xl rounded-full px-5 py-2.5 flex items-center gap-2 hover:bg-black/70 active:scale-95 transition-all border border-white/10 shadow-lg"
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            loadViewers();
+          }}
+          className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 bg-black/60 backdrop-blur-xl rounded-full px-5 py-2.5 flex items-center gap-2 hover:bg-black/70 active:scale-95 active:bg-black/80 transition-all border border-white/10 shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-300 pointer-events-auto touch-manipulation"
         >
           <Eye className="w-[18px] h-[18px] text-white" />
           <span className="text-white font-medium text-[15px]">
             {viewCount} {viewCount === 1 ? 'view' : 'views'}
           </span>
           <ChevronUp className="w-4 h-4 text-white/60" />
-        </motion.button>
+        </button>
       )}
 
       {/* Quick Reactions - WhatsApp Style (Others' Stories) */}
       {!isMyStory && !showViewers && (
-        <div className="absolute bottom-20 right-4 z-30 flex flex-col gap-2">
-          <motion.button
-            whileTap={{ scale: 0.9 }}
-            onClick={() => handleQuickReaction('❤️')}
-            className="w-12 h-12 rounded-full bg-black/60 backdrop-blur-xl flex items-center justify-center hover:bg-black/70 active:scale-95 transition-all border border-white/10 shadow-lg"
-          >
-            <span className="text-2xl">❤️</span>
-          </motion.button>
-          <motion.button
-            whileTap={{ scale: 0.9 }}
-            onClick={() => handleQuickReaction('😂')}
-            className="w-12 h-12 rounded-full bg-black/60 backdrop-blur-xl flex items-center justify-center hover:bg-black/70 active:scale-95 transition-all border border-white/10 shadow-lg"
-          >
-            <span className="text-2xl">😂</span>
-          </motion.button>
-          <motion.button
-            whileTap={{ scale: 0.9 }}
-            onClick={() => handleQuickReaction('😮')}
-            className="w-12 h-12 rounded-full bg-black/60 backdrop-blur-xl flex items-center justify-center hover:bg-black/70 active:scale-95 transition-all border border-white/10 shadow-lg"
-          >
-            <span className="text-2xl">😮</span>
-          </motion.button>
+        <div className="absolute bottom-20 right-4 z-30 flex flex-col gap-2.5 pointer-events-auto">
+          {[
+            { emoji: '❤️', label: 'Love' },
+            { emoji: '😂', label: 'Laugh' },
+            { emoji: '😮', label: 'Wow' },
+            { emoji: '😢', label: 'Sad' },
+            { emoji: '🔥', label: 'Fire' },
+          ].map(({ emoji, label }) => (
+            <button
+              key={emoji}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleQuickReaction(emoji);
+              }}
+              className="w-14 h-14 rounded-full bg-black/60 backdrop-blur-xl flex items-center justify-center hover:bg-black/70 active:scale-90 active:bg-black/80 transition-all border border-white/10 shadow-lg touch-manipulation"
+              aria-label={`React with ${label}`}
+            >
+              <span className="text-2xl leading-none">{emoji}</span>
+            </button>
+          ))}
         </div>
       )}
 
       {/* Reply Bar - WhatsApp Style (Others' Stories) */}
       {!isMyStory && !showViewers && (
-        <div className="absolute bottom-0 left-0 right-0 z-30 pb-safe">
-          <div className="px-4 py-3 bg-gradient-to-t from-black/70 via-black/50 to-transparent backdrop-blur-sm">
-            <div className="flex items-center gap-2 max-w-2xl mx-auto">
+        <div className="absolute bottom-0 left-0 right-0 z-30 pb-safe pointer-events-auto">
+          <div className="px-4 py-3 bg-gradient-to-t from-black/80 via-black/60 to-transparent backdrop-blur-md">
+            <div className="flex items-center gap-2.5 max-w-2xl mx-auto">
               <div className="flex-1 relative">
                 <Input
                   ref={replyInputRef}
                   value={replyText}
                   onChange={(e) => setReplyText(e.target.value)}
-                  placeholder={`Send message`}
-                  className="bg-white/15 backdrop-blur-xl border-white/20 text-white placeholder:text-white/60 rounded-full h-12 px-5 pr-12 focus:bg-white/20 focus:border-white/30 transition-all shadow-lg text-[15px]"
+                  placeholder={`Reply to ${currentUserStories.user.full_name}`}
+                  className="bg-white/15 backdrop-blur-xl border-white/20 text-white placeholder:text-white/60 rounded-full h-12 px-5 pr-12 focus:bg-white/25 focus:border-white/40 transition-all shadow-lg text-[15px] touch-manipulation"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       handleReply();
                     }
                   }}
-                  onFocus={() => setIsPaused(true)}
-                  onBlur={() => setIsPaused(false)}
+                  onFocus={() => {
+                    setIsPaused(true);
+                    // Scroll into view on mobile
+                    setTimeout(() => {
+                      replyInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 100);
+                  }}
+                  onBlur={() => {
+                    setTimeout(() => setIsPaused(false), 100);
+                  }}
+                  autoComplete="off"
+                  autoCapitalize="sentences"
                 />
               </div>
               {replyText.trim() ? (
-                <motion.button
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  exit={{ scale: 0 }}
-                  whileTap={{ scale: 0.9 }}
+                <button
                   onClick={handleReply}
-                  className="w-12 h-12 rounded-full bg-primary hover:bg-primary/90 active:bg-primary/80 flex items-center justify-center transition-all shadow-lg flex-shrink-0"
+                  className="w-12 h-12 rounded-full bg-primary hover:bg-primary/90 active:bg-primary/80 active:scale-95 flex items-center justify-center transition-all shadow-lg flex-shrink-0 animate-in zoom-in duration-200 touch-manipulation"
                 >
                   <Send className="w-5 h-5 text-white" />
-                </motion.button>
+                </button>
               ) : (
-                <motion.button
-                  whileTap={{ scale: 0.9 }}
+                <button
                   onClick={() => handleQuickReaction('❤️')}
-                  className="w-12 h-12 rounded-full bg-white/15 backdrop-blur-xl hover:bg-white/20 active:bg-white/25 flex items-center justify-center transition-all shadow-lg flex-shrink-0 border border-white/20"
+                  className="w-12 h-12 rounded-full bg-white/15 backdrop-blur-xl hover:bg-white/20 active:bg-white/30 active:scale-95 flex items-center justify-center transition-all shadow-lg flex-shrink-0 border border-white/20 touch-manipulation"
                 >
                   <Heart className="w-5 h-5 text-white" />
-                </motion.button>
+                </button>
               )}
             </div>
           </div>
@@ -519,35 +619,47 @@ export function StoryViewerScreen({
       )}
 
       {/* Viewers Modal - WhatsApp Style */}
-      <AnimatePresence>
-        {showViewers && isMyStory && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="absolute inset-0 z-40 bg-black/95 backdrop-blur-md flex items-end"
-            onClick={() => {
-              setShowViewers(false);
-              setIsPaused(false);
+      {showViewers && isMyStory && (
+        <div
+          className="absolute inset-0 z-40 bg-black/95 backdrop-blur-md flex items-end animate-in fade-in duration-200 pointer-events-auto"
+          onClick={() => {
+            setShowViewers(false);
+            setIsPaused(false);
+          }}
+        >
+          <div
+            className="bg-surface w-full rounded-t-[28px] overflow-hidden max-h-[75vh] pb-safe shadow-2xl animate-in slide-in-from-bottom duration-300"
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => {
+              const touch = e.touches[0];
+              setTouchStartY(touch.clientY);
+            }}
+            onTouchMove={(e) => {
+              const touch = e.touches[0];
+              const diff = touch.clientY - touchStartY;
+              
+              // Allow natural scrolling but prepare for swipe down
+              if (diff > 0) {
+                e.currentTarget.style.transform = `translateY(${diff}px)`;
+              }
+            }}
+            onTouchEnd={(e) => {
+              const touch = e.changedTouches[0];
+              const diff = touch.clientY - touchStartY;
+              
+              // Swipe down to close
+              if (diff > 100) {
+                setShowViewers(false);
+                setIsPaused(false);
+              } else {
+                // Reset position
+                e.currentTarget.style.transform = 'translateY(0)';
+              }
             }}
           >
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ 
-                type: 'spring', 
-                damping: 35, 
-                stiffness: 400,
-                mass: 0.8
-              }}
-              className="bg-surface w-full rounded-t-[28px] overflow-hidden max-h-[75vh] pb-safe shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
               {/* Swipe Indicator */}
-              <div className="w-full flex justify-center py-2 bg-surface border-b border-border/50">
-                <div className="w-10 h-1 bg-muted-foreground/30 rounded-full" />
+              <div className="w-full flex justify-center py-3 bg-surface border-b border-border/50 cursor-grab active:cursor-grabbing">
+                <div className="w-12 h-1.5 bg-muted-foreground/30 rounded-full" />
               </div>
 
               {/* Header */}
@@ -581,12 +693,10 @@ export function StoryViewerScreen({
                 {viewers.length > 0 ? (
                   <div className="py-1">
                     {viewers.map((view, index) => (
-                      <motion.div
+                      <div
                         key={view.id}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                        className="flex items-center gap-3 px-5 py-3 hover:bg-hover-surface active:bg-hover-muted transition-colors"
+                        className="flex items-center gap-3 px-5 py-3 hover:bg-hover-surface active:bg-hover-muted transition-colors animate-in fade-in slide-in-from-left-4 duration-300"
+                        style={{animationDelay: `${index * 50}ms`}}
                       >
                         <Avatar user={view.user} size="md" />
                         <div className="flex-1 min-w-0">
@@ -602,7 +712,7 @@ export function StoryViewerScreen({
                             })}
                           </p>
                         </div>
-                      </motion.div>
+                      </div>
                     ))}
                   </div>
                 ) : (
@@ -617,16 +727,38 @@ export function StoryViewerScreen({
                   </div>
                 )}
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+        </div>
+      )}
 
       {/* Loading indicator when media is loading */}
       {currentStory.type !== 'text' && !imageLoaded && !videoLoaded && (
         <div className="absolute inset-0 flex items-center justify-center bg-black z-10">
           <div className="relative">
             <div className="w-12 h-12 border-4 border-white/10 border-t-white rounded-full animate-spin" />
+          </div>
+        </div>
+      )}
+
+      {/* Paused Indicator - WhatsApp Style */}
+      {isPaused && !showViewers && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none">
+          <div className="bg-black/60 backdrop-blur-xl rounded-full p-4 border border-white/20 shadow-2xl animate-in zoom-in fade-in duration-150">
+            <div className="flex gap-1.5">
+              <div className="w-1.5 h-8 bg-white rounded-full" />
+              <div className="w-1.5 h-8 bg-white rounded-full" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Swipe instruction hint - Show once on first story view */}
+      {currentStoryIndex === 0 && currentUserIndex === 0 && !isMyStory && (
+        <div className="absolute bottom-32 left-0 right-0 z-20 pointer-events-none animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="text-center px-4">
+            <p className="text-white/60 text-xs font-medium">
+              Tap left or right to navigate • Hold to pause
+            </p>
           </div>
         </div>
       )}

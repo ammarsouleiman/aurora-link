@@ -1,4 +1,4 @@
-import { Mic, Info } from 'lucide-react';
+import { Mic, Info } from './ui/icons';
 import {
   AlertDialog,
   AlertDialogAction,

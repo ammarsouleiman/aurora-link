@@ -1,12 +1,13 @@
 import { Avatar } from './Avatar';
 import { Badge } from './ui/badge';
-import { Check, CheckCheck } from 'lucide-react';
+import { Check, CheckCheck } from './ui/icons';
 import type { Conversation } from '../utils/types';
 
 interface ConversationCardProps {
   conversation: Conversation;
   isActive?: boolean;
   onClick?: () => void;
+  onHover?: () => void;
   currentUserId?: string;
 }
 
@@ -14,6 +15,7 @@ export function ConversationCard({
   conversation,
   isActive = false,
   onClick,
+  onHover,
   currentUserId,
 }: ConversationCardProps) {
   const formatTime = (dateString?: string) => {
@@ -108,6 +110,7 @@ export function ConversationCard({
   return (
     <button
       onClick={onClick}
+      onMouseEnter={onHover}
       className={`w-full max-w-full flex items-center gap-3 px-3 py-3 transition-all duration-150 text-left border-b border-border/50 hover:bg-[var(--hover-surface)] overflow-hidden active:bg-[var(--hover-muted)] touch-manipulation ${
         isActive ? 'bg-muted' : ''
       }`}

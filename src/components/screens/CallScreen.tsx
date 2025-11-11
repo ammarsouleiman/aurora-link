@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Phone, Video, Mic, MicOff, VideoOff, PhoneOff, Maximize2, Minimize2 } from 'lucide-react';
+import { Phone, Video, Mic, MicOff, VideoOff, PhoneOff, Maximize2, Minimize2 } from '../ui/icons';
 import { Button } from '../ui/button';
 import { Avatar } from '../Avatar';
-import { motion } from 'motion/react';
 import type { User as UserType } from '../../utils/types';
 
 interface CallScreenProps {
@@ -125,30 +124,8 @@ export function CallScreen({
     <div className="h-screen w-screen bg-gradient-to-br from-surface via-background to-muted flex flex-col items-center justify-center relative overflow-hidden">
       {/* Animated background */}
       <div className="absolute inset-0 opacity-30 pointer-events-none">
-        <motion.div 
-          className="absolute top-20 left-20 w-96 h-96 bg-primary/20 rounded-full blur-3xl"
-          animate={{
-            scale: [1, 1.2, 1],
-            opacity: [0.3, 0.5, 0.3],
-          }}
-          transition={{
-            duration: 4,
-            repeat: Infinity,
-            ease: "easeInOut"
-          }}
-        />
-        <motion.div 
-          className="absolute bottom-20 right-20 w-96 h-96 bg-accent/20 rounded-full blur-3xl"
-          animate={{
-            scale: [1.2, 1, 1.2],
-            opacity: [0.5, 0.3, 0.5],
-          }}
-          transition={{
-            duration: 4,
-            repeat: Infinity,
-            ease: "easeInOut"
-          }}
-        />
+        <div className="absolute top-20 left-20 w-96 h-96 bg-primary/20 rounded-full blur-3xl animate-pulse-slow" />
+        <div className="absolute bottom-20 right-20 w-96 h-96 bg-accent/20 rounded-full blur-3xl animate-pulse-slow" style={{animationDelay: '2s'}} />
       </div>
 
       {callType === 'video' ? (
@@ -175,27 +152,15 @@ export function CallScreen({
                 <h2 className="text-white text-2xl mb-2">{recipientUser.full_name}</h2>
                 <p className="text-white/70">{getStatusText()}</p>
                 {callStatus === 'ringing' && (
-                  <motion.div
-                    className="mt-8 flex gap-2"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                  >
+                  <div className="mt-8 flex gap-2 animate-in fade-in duration-300">
                     {[0, 1, 2].map((i) => (
-                      <motion.div
+                      <div
                         key={i}
-                        className="w-3 h-3 rounded-full bg-white/50"
-                        animate={{
-                          scale: [1, 1.5, 1],
-                          opacity: [0.5, 1, 0.5],
-                        }}
-                        transition={{
-                          duration: 1.5,
-                          repeat: Infinity,
-                          delay: i * 0.2,
-                        }}
+                        className="w-3 h-3 rounded-full bg-white/50 animate-pulse"
+                        style={{animationDelay: `${i * 200}ms`}}
                       />
                     ))}
-                  </motion.div>
+                  </div>
                 )}
               </div>
             )}
@@ -203,14 +168,7 @@ export function CallScreen({
 
           {/* Local video (picture-in-picture) */}
           {localStream && !isVideoOff && (
-            <motion.div
-              className="absolute top-4 right-4 w-40 h-52 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 bg-black"
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.3 }}
-              drag
-              dragConstraints={{ top: 0, left: -200, right: 0, bottom: 400 }}
-            >
+            <div className="absolute top-4 right-4 w-40 h-52 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 bg-black animate-in zoom-in fade-in duration-300 delay-300">
               <video
                 ref={localVideoRef}
                 autoPlay
@@ -218,7 +176,7 @@ export function CallScreen({
                 muted
                 className="w-full h-full object-cover scale-x-[-1]"
               />
-            </motion.div>
+            </div>
           )}
 
           {/* Call info overlay (top) */}
@@ -250,41 +208,35 @@ export function CallScreen({
           {/* Controls (bottom) */}
           <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-black/60 to-transparent">
             <div className="flex items-center justify-center gap-4">
-              <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
-                <Button
-                  variant={isMuted ? "destructive" : "secondary"}
-                  size="icon"
-                  onClick={toggleMute}
-                  className="h-14 w-14 rounded-full shadow-lg"
-                  aria-label={isMuted ? "Unmute" : "Mute"}
-                >
-                  {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-                </Button>
-              </motion.div>
+              <Button
+                variant={isMuted ? "destructive" : "secondary"}
+                size="icon"
+                onClick={toggleMute}
+                className="h-14 w-14 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform"
+                aria-label={isMuted ? "Unmute" : "Mute"}
+              >
+                {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+              </Button>
 
-              <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
-                <Button
-                  variant={isVideoOff ? "destructive" : "secondary"}
-                  size="icon"
-                  onClick={toggleVideo}
-                  className="h-14 w-14 rounded-full shadow-lg"
-                  aria-label={isVideoOff ? "Turn on camera" : "Turn off camera"}
-                >
-                  {isVideoOff ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
-                </Button>
-              </motion.div>
+              <Button
+                variant={isVideoOff ? "destructive" : "secondary"}
+                size="icon"
+                onClick={toggleVideo}
+                className="h-14 w-14 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform"
+                aria-label={isVideoOff ? "Turn on camera" : "Turn off camera"}
+              >
+                {isVideoOff ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
+              </Button>
 
-              <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
-                <Button
-                  variant="destructive"
-                  size="icon"
-                  onClick={onEndCall}
-                  className="h-16 w-16 rounded-full shadow-lg bg-red-500 hover:bg-red-600"
-                  aria-label="End call"
-                >
-                  <PhoneOff className="w-7 h-7" />
-                </Button>
-              </motion.div>
+              <Button
+                variant="destructive"
+                size="icon"
+                onClick={onEndCall}
+                className="h-16 w-16 rounded-full shadow-lg bg-red-500 hover:bg-red-600 hover:scale-110 active:scale-95 transition-transform"
+                aria-label="End call"
+              >
+                <PhoneOff className="w-7 h-7" />
+              </Button>
             </div>
           </div>
         </div>
@@ -292,17 +244,7 @@ export function CallScreen({
         /* Voice Call Layout */
         <div className="relative z-10 flex flex-col items-center justify-center gap-8 p-8">
           {/* Recipient avatar with pulse animation */}
-          <motion.div
-            animate={{
-              scale: callStatus === 'ringing' ? [1, 1.05, 1] : 1,
-            }}
-            transition={{
-              duration: 2,
-              repeat: callStatus === 'ringing' ? Infinity : 0,
-              ease: "easeInOut"
-            }}
-            className="relative"
-          >
+          <div className={`relative ${callStatus === 'ringing' ? 'animate-pulse-slow' : ''}`}>
             <Avatar
               src={recipientUser.avatar_url}
               alt={recipientUser.full_name}
@@ -311,20 +253,9 @@ export function CallScreen({
               className="shadow-2xl"
             />
             {callStatus === 'ringing' && (
-              <motion.div
-                className="absolute inset-0 rounded-full border-4 border-primary"
-                animate={{
-                  scale: [1, 1.3, 1],
-                  opacity: [0.8, 0, 0.8],
-                }}
-                transition={{
-                  duration: 2,
-                  repeat: Infinity,
-                  ease: "easeOut"
-                }}
-              />
+              <div className="absolute inset-0 rounded-full border-4 border-primary animate-ping" />
             )}
-          </motion.div>
+          </div>
 
           {/* Call info */}
           <div className="text-center">
@@ -334,54 +265,38 @@ export function CallScreen({
 
           {/* Animated indicator for ringing */}
           {callStatus === 'ringing' && (
-            <motion.div
-              className="flex gap-2"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-            >
+            <div className="flex gap-2 animate-in fade-in duration-300">
               {[0, 1, 2].map((i) => (
-                <motion.div
+                <div
                   key={i}
-                  className="w-3 h-3 rounded-full bg-primary"
-                  animate={{
-                    scale: [1, 1.5, 1],
-                    opacity: [0.5, 1, 0.5],
-                  }}
-                  transition={{
-                    duration: 1.5,
-                    repeat: Infinity,
-                    delay: i * 0.2,
-                  }}
+                  className="w-3 h-3 rounded-full bg-primary animate-pulse"
+                  style={{animationDelay: `${i * 200}ms`}}
                 />
               ))}
-            </motion.div>
+            </div>
           )}
 
           {/* Controls */}
           <div className="flex items-center gap-6 mt-8">
-            <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
-              <Button
-                variant={isMuted ? "destructive" : "secondary"}
-                size="icon"
-                onClick={toggleMute}
-                className="h-16 w-16 rounded-full shadow-lg"
-                aria-label={isMuted ? "Unmute" : "Mute"}
-              >
-                {isMuted ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
-              </Button>
-            </motion.div>
+            <Button
+              variant={isMuted ? "destructive" : "secondary"}
+              size="icon"
+              onClick={toggleMute}
+              className="h-16 w-16 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform"
+              aria-label={isMuted ? "Unmute" : "Mute"}
+            >
+              {isMuted ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
+            </Button>
 
-            <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
-              <Button
-                variant="destructive"
-                size="icon"
-                onClick={onEndCall}
-                className="h-20 w-20 rounded-full shadow-2xl bg-red-500 hover:bg-red-600"
-                aria-label="End call"
-              >
-                <PhoneOff className="w-8 h-8" />
-              </Button>
-            </motion.div>
+            <Button
+              variant="destructive"
+              size="icon"
+              onClick={onEndCall}
+              className="h-20 w-20 rounded-full shadow-2xl bg-red-500 hover:bg-red-600 hover:scale-110 active:scale-95 transition-transform"
+              aria-label="End call"
+            >
+              <PhoneOff className="w-8 h-8" />
+            </Button>
           </div>
 
           {/* Hidden video element for local stream */}

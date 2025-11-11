@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { X } from './ui/icons';
 import type { Message } from '../utils/types';
 
 interface ReplyPreviewProps {

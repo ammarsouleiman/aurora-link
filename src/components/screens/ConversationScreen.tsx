@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { ArrowLeft, Phone, Video, MoreVertical, Search, Paperclip, Smile, Send, Mic, X, Trash2 } from 'lucide-react';
+import { ArrowLeft, Phone, Video, MoreVertical, Search, Paperclip, Smile, Send, Mic, X, Trash2 } from '../ui/icons';
 import { Avatar } from '../Avatar';
 import { MessageBubble } from '../MessageBubble';
 import { TypingIndicator } from '../TypingIndicator';
@@ -11,8 +11,9 @@ import { MicrophonePermissionDeniedDialog } from '../MicrophonePermissionDeniedD
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { toast } from '../../utils/toast';
 import { conversationsApi, messagesApi, uploadApi, typingApi } from '../../utils/api';
-import { createClient } from '../../utils/supabase/client';
+import { createClient } from '../../utils/supabase/direct-api-client';
 import { useLastSeen } from '../../utils/hooks/useLastSeen';
+import { performanceCache } from '../../utils/performance-cache';
 import type { Conversation, Message, User as UserType } from '../../utils/types';
 
 interface ConversationScreenProps {
@@ -173,6 +174,9 @@ export function ConversationScreen({
                 new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
               );
               
+              // Update cache with new messages
+              performanceCache.updateMessages(conversationId, merged);
+              
               // Mark new messages as read if from others
               const unreadIds = messagesToAdd
                 .filter((m: Message) => m.sender_id !== currentUser.id)
@@ -234,19 +238,31 @@ export function ConversationScreen({
 
   const loadConversation = async () => {
     try {
-      setLoading(true);
+      // 1. INSTANT: Load from cache first (0ms delay)
+      const cached = await performanceCache.getMessages(conversationId);
+      if (cached.fromCache && cached.messages.length > 0) {
+        // Show cached data IMMEDIATELY
+        const cachedConv = await performanceCache.getConversation(conversationId);
+        if (cachedConv.conversation) {
+          setConversation(cachedConv.conversation);
+          setMessages(cached.messages);
+          setLoading(false);
+          // Continue to background refresh below
+        }
+      } else {
+        // No cache, show loading
+        setLoading(true);
+      }
+
+      // 2. BACKGROUND: Fetch fresh data from server
       const result = await conversationsApi.get(conversationId);
       if (result.success && result.data) {
         setConversation(result.data.conversation);
         setMessages(result.data.messages || []);
         
-        // Show indicator if using cached data
-        if (result.fromCache) {
-          toast.info('Using offline data', {
-            description: 'Server is not accessible. Showing cached conversation.',
-            duration: 3000,
-          });
-        }
+        // Update cache for next time
+        await performanceCache.saveConversation(result.data.conversation);
+        await performanceCache.saveMessages(conversationId, result.data.messages || []);
         
         // Mark as read (only if not from cache)
         if (!result.fromCache) {
@@ -259,14 +275,18 @@ export function ConversationScreen({
         }
       } else {
         console.error('Failed to load conversation:', result.error);
-        // Only show error if it's not a network error (which would show banner)
-        if (!result.error?.includes('Network error')) {
+        // Only show error if we don't have cached data
+        if (!cached.fromCache && !result.error?.includes('Network error')) {
           toast.error('Failed to load conversation');
         }
       }
     } catch (error) {
       console.error('Error loading conversation:', error);
-      toast.error('Error loading conversation');
+      // Only show error if we don't have cached data
+      const cached = await performanceCache.getMessages(conversationId);
+      if (!cached.fromCache) {
+        toast.error('Error loading conversation');
+      }
     } finally {
       setLoading(false);
     }
@@ -490,7 +510,7 @@ export function ConversationScreen({
     }
   };
 
-  const handleVoiceRecorded = async (audioBlob: Blob) => {
+  const handleVoiceRecordingComplete = async (audioBlob: Blob, duration: number) => {
     setSending(true);
     
     // Create optimistic voice message
@@ -515,6 +535,7 @@ export function ConversationScreen({
         filename: 'voice-message.webm',
         size: audioBlob.size,
         mime_type: 'audio/webm',
+        duration, // Include duration in metadata
       }],
     };
 
@@ -542,6 +563,7 @@ export function ConversationScreen({
             filename: 'voice-message.webm',
             size: audioBlob.size,
             mime_type: 'audio/webm',
+            duration, // Include duration in metadata
           }]
         );
         
@@ -616,7 +638,7 @@ export function ConversationScreen({
   }
 
   return (
-    <div className="flex flex-col h-screen bg-[#efeae2]">
+    <div className="flex flex-col h-screen bg-[#efeae2] relative">
       {/* WhatsApp Header - LIGHT MODE ONLY */}
       <header className="flex items-center h-[60px] bg-[#f0f2f5] px-4 gap-3 shadow-sm">
         <button
@@ -834,7 +856,7 @@ export function ConversationScreen({
       {/* Voice Recorder */}
       {isRecording && (
         <VoiceRecorder
-          onRecorded={handleVoiceRecorded}
+          onRecordingComplete={handleVoiceRecordingComplete}
           onCancel={() => setIsRecording(false)}
         />
       )}
@@ -842,13 +864,13 @@ export function ConversationScreen({
       {/* Permission Dialogs */}
       <MicrophonePermissionDialog
         open={showMicPermissionDialog}
-        onConfirm={requestMicrophonePermission}
-        onCancel={() => setShowMicPermissionDialog(false)}
+        onOpenChange={setShowMicPermissionDialog}
+        onAllow={requestMicrophonePermission}
       />
 
       <MicrophonePermissionDeniedDialog
         open={showMicPermissionDeniedDialog}
-        onClose={() => setShowMicPermissionDeniedDialog(false)}
+        onOpenChange={setShowMicPermissionDeniedDialog}
       />
     </div>
   );

@@ -1,28 +1,23 @@
 import type { StoryReplyMetadata } from '../utils/types';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { motion } from 'motion/react';
 
 interface StoryReplyPreviewProps {
   storyReply: StoryReplyMetadata;
   isOwnMessage: boolean;
 }
 
+/**
+ * WhatsApp-exact Story Reply Preview Component
+ * Shows a preview of the story being replied to within a message bubble
+ * Matches WhatsApp's exact colors and styling
+ */
 export function StoryReplyPreview({ storyReply, isOwnMessage }: StoryReplyPreviewProps) {
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: -5 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-      className={`overflow-hidden rounded-xl border relative ${
-        isOwnMessage 
-          ? 'border-white/20 bg-white/10' 
-          : 'border-border/50 bg-muted/30'
-      }`}
+    <div 
+      className="overflow-hidden rounded-lg border-[#d1d7db]/80 bg-[#f0f2f5] border relative animate-in fade-in slide-in-from-top-1 duration-200"
     >
-      {/* Border Accent */}
-      <div className={`w-1 h-full absolute left-0 top-0 bottom-0 ${
-        isOwnMessage ? 'bg-white/30' : 'bg-primary/40'
-      }`} />
+      {/* Border Accent - WhatsApp Green */}
+      <div className="w-1 h-full absolute left-0 top-0 bottom-0 bg-[#00a884]" />
       
       <div className="flex items-center gap-2.5 px-3 py-2.5 pl-4">
         {/* Story Preview Thumbnail */}
@@ -68,13 +63,11 @@ export function StoryReplyPreview({ storyReply, isOwnMessage }: StoryReplyPrevie
           )}
         </div>
 
-        {/* Story Info */}
+        {/* Story Info - WhatsApp Colors */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-0.5">
             <svg 
-              className={`w-4 h-4 flex-shrink-0 ${
-                isOwnMessage ? 'text-white/70' : 'text-primary'
-              }`} 
+              className="w-4 h-4 flex-shrink-0 text-[#00a884]" 
               fill="none" 
               viewBox="0 0 24 24" 
               stroke="currentColor"
@@ -82,15 +75,11 @@ export function StoryReplyPreview({ storyReply, isOwnMessage }: StoryReplyPrevie
               <circle cx="12" cy="12" r="10" strokeWidth="2" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6l4 2" />
             </svg>
-            <span className={`text-xs font-medium truncate ${
-              isOwnMessage ? 'text-white/90' : 'text-foreground'
-            }`}>
+            <span className="text-xs font-medium truncate text-[#111b21]">
               {storyReply.story_user_name}'s status
             </span>
           </div>
-          <p className={`text-[11px] truncate ${
-            isOwnMessage ? 'text-white/60' : 'text-muted-foreground'
-          }`}>
+          <p className="text-[11px] truncate text-[#667781]">
             {storyReply.story_type === 'text' ? (
               <span className="flex items-center gap-1">
                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
@@ -116,6 +105,6 @@ export function StoryReplyPreview({ storyReply, isOwnMessage }: StoryReplyPrevie
           </p>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { Mail, Lock, User, Loader2, AlertCircle, ArrowRight, MessageCircle } from 'lucide-react';
+import { Mail, Lock, User, Loader2, AlertCircle, ArrowRight, MessageCircle } from '../ui/icons';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Alert, AlertDescription } from '../ui/alert';
-import { createClient } from '../../utils/supabase/client';
+import { createClient } from '../../utils/supabase/direct-api-client';
 import { authApi } from '../../utils/api';
-import { motion } from 'motion/react';
 import { PhoneInput } from '../PhoneInput';
 
 interface AuthScreenProps {
@@ -123,21 +122,44 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
         }
         
         console.log('[Auth] ✅ Session verified in storage');
+        
+        // Clear nuclear clear flag since user successfully logged in
+        sessionStorage.removeItem('nuclear_clear_performed');
+        sessionStorage.removeItem('nuclear_clear_in_progress');
+        console.log('[Auth] Cleared nuclear clear flags');
+        
         onAuthSuccess();
       } else {
         // Login
         console.log('[Auth] Attempting login...');
+        console.log('[Auth] Email:', email);
+        console.log('[Auth] Password length:', password.length);
+        console.log('[Auth] Email valid format:', /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+        
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
 
         if (signInError) {
-          // Only log as error if it's not just wrong credentials
-          if (!signInError.message.toLowerCase().includes('invalid login credentials')) {
-            console.error('[Auth] Login error:', signInError.message);
+          console.error('[Auth] Login error:', signInError);
+          console.error('[Auth] Error message:', signInError.message);
+          console.error('[Auth] Error status:', signInError.status);
+          
+          // Provide helpful error messages
+          let displayError = signInError.message;
+          
+          if (signInError.status === 400) {
+            if (signInError.message.includes('Invalid login credentials')) {
+              displayError = 'Invalid email or password. Please check your credentials and try again.';
+            } else if (signInError.message.includes('Email not confirmed')) {
+              displayError = 'Please confirm your email address before logging in.';
+            } else {
+              displayError = `Login failed: ${signInError.message}`;
+            }
           }
-          setError(signInError.message);
+          
+          setError(displayError);
           setLoading(false);
           return;
         }
@@ -198,6 +220,11 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
         console.log('[Auth] Stored session user:', verifySession.user.id);
         console.log('[Auth] Stored access token preview:', verifySession.access_token?.substring(0, 30) + '...');
         
+        // Clear nuclear clear flag since user successfully logged in
+        sessionStorage.removeItem('nuclear_clear_performed');
+        sessionStorage.removeItem('nuclear_clear_in_progress');
+        console.log('[Auth] Cleared nuclear clear flags');
+        
         onAuthSuccess();
       }
     } catch (err) {
@@ -209,57 +236,27 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
   return (
     <div className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 md:p-8 pt-safe pb-safe pl-safe pr-safe relative overflow-hidden bg-gradient-to-br from-background via-surface to-background">
       {/* Refined animated background gradient */}
-      <motion.div
-        className="absolute inset-0 opacity-40"
-        animate={{
-          background: [
-            'radial-gradient(circle at 20% 30%, var(--primary) 0%, transparent 60%)',
-            'radial-gradient(circle at 80% 70%, var(--accent) 0%, transparent 60%)',
-            'radial-gradient(circle at 50% 50%, var(--primary) 0%, transparent 60%)',
-            'radial-gradient(circle at 20% 30%, var(--primary) 0%, transparent 60%)',
-          ],
-        }}
-        transition={{
-          duration: 20,
-          repeat: Infinity,
-          ease: "linear",
-        }}
-      />
+      <div className="absolute inset-0 opacity-40 animate-gradient-shift" />
 
       {/* Subtle floating orbs - more refined */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {[...Array(4)].map((_, i) => (
-          <motion.div
+          <div
             key={i}
-            className="absolute rounded-full bg-gradient-to-br from-primary/15 to-accent/15 backdrop-blur-2xl"
+            className="absolute rounded-full bg-gradient-to-br from-primary/15 to-accent/15 backdrop-blur-2xl animate-float-slow"
             style={{
-              width: Math.random() * 250 + 150,
-              height: Math.random() * 250 + 150,
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-            }}
-            animate={{
-              x: [0, Math.random() * 60 - 30],
-              y: [0, Math.random() * 60 - 30],
-              scale: [1, 1.15, 1],
-              opacity: [0.2, 0.4, 0.2],
-            }}
-            transition={{
-              duration: Math.random() * 8 + 12,
-              repeat: Infinity,
-              ease: "easeInOut",
+              width: 200,
+              height: 200,
+              left: `${(i * 25) % 100}%`,
+              top: `${((i * 30) + 20) % 80}%`,
+              animationDelay: `${i * 3}s`,
             }}
           />
         ))}
       </div>
 
       {/* Main auth card - Mobile-responsive */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.96, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: "easeOut" }}
-        className="relative w-full max-w-sm xs:max-w-md"
-      >
+      <div className="relative w-full max-w-sm xs:max-w-md animate-in fade-in zoom-in-95 slide-in-from-bottom-4 duration-700">
         {/* Enhanced glass morphism card */}
         <div className="bg-card/90 dark:bg-card/50 backdrop-blur-3xl rounded-2xl sm:rounded-3xl shadow-2xl border border-border/50 p-6 xs:p-8 sm:p-10 relative overflow-hidden">
           {/* Subtle card glow */}
@@ -268,73 +265,43 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
           {/* Content */}
           <div className="relative z-10">
             {/* Header - Mobile-optimized */}
-            <motion.div
-              className="text-center mb-8 sm:mb-10"
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-            >
+            <div className="text-center mb-8 sm:mb-10 animate-in fade-in slide-in-from-top-2 duration-500 delay-100">
               {/* Logo with refined styling - Responsive sizing */}
-              <motion.div
-                className="inline-flex items-center justify-center gap-2.5 sm:gap-3 mb-5 sm:mb-6"
-                whileHover={{ scale: 1.03 }}
-                transition={{ type: "spring", stiffness: 400, damping: 20 }}
-              >
+              <div className="inline-flex items-center justify-center gap-2.5 sm:gap-3 mb-5 sm:mb-6 hover:scale-105 transition-transform duration-200">
                 <div className="relative">
                   <div className="w-12 h-12 xs:w-14 xs:h-14 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-gradient-to-br from-primary to-accent shadow-xl shadow-primary/30 flex items-center justify-center">
                     <MessageCircle className="w-7 h-7 xs:w-8 xs:h-8 sm:w-9 sm:h-9 text-white" strokeWidth={2.5} />
                   </div>
                   {/* Subtle pulsing glow */}
-                  <motion.div
-                    className="absolute inset-0 rounded-xl sm:rounded-2xl bg-gradient-to-br from-primary to-accent opacity-30 blur-xl"
-                    animate={{
-                      opacity: [0.2, 0.4, 0.2],
-                      scale: [1, 1.1, 1],
-                    }}
-                    transition={{
-                      duration: 3,
-                      repeat: Infinity,
-                      ease: "easeInOut",
-                    }}
-                  />
+                  <div className="absolute inset-0 rounded-xl sm:rounded-2xl bg-gradient-to-br from-primary to-accent opacity-30 blur-xl animate-pulse-slow" />
                 </div>
-              </motion.div>
+              </div>
               
               <h1 className="mb-2.5 sm:mb-3 text-2xl xs:text-3xl sm:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-transparent">
                 AuroraLink
               </h1>
-              <motion.p
-                className="text-muted-foreground text-base"
+              <p
+                className="text-muted-foreground text-base animate-in fade-in slide-in-from-bottom-2 duration-300"
                 key={mode}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
               >
                 {mode === 'login' ? 'Welcome back! Sign in to continue.' : 'Create your account to get started'}
-              </motion.p>
-            </motion.div>
+              </p>
+            </div>
 
             {/* Error alert */}
             {error && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.3 }}
-              >
+              <div className="animate-in fade-in zoom-in-95 duration-300">
                 <Alert variant="destructive" className="mb-6">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
-              </motion.div>
+              </div>
             )}
 
             {/* Form with improved spacing */}
-            <motion.form
+            <form
               onSubmit={handleSubmit}
-              className="space-y-6"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.2 }}
+              className="space-y-6 animate-in fade-in duration-500 delay-200"
             >
               {mode === 'signup' && (
                 <>
@@ -415,14 +382,10 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                 )}
               </div>
 
-          <motion.div
-            whileHover={{ scale: loading ? 1 : 1.01 }}
-            whileTap={{ scale: loading ? 1 : 0.99 }}
-            className="mt-2"
-          >
+          <div className="mt-2">
             <Button
               type="submit"
-              className="w-full h-14 text-base font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-xl shadow-primary/30 transition-all duration-300"
+              className="w-full h-14 text-base font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-xl shadow-primary/30 transition-all duration-300 hover:scale-[1.01] active:scale-[0.99]"
               disabled={loading}
             >
               {loading ? (
@@ -437,16 +400,11 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                 </>
               )}
             </Button>
-          </motion.div>
-        </motion.form>
+          </div>
+        </form>
 
             {/* Toggle mode */}
-            <motion.div
-              className="mt-8 text-center"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.3 }}
-            >
+            <div className="mt-8 text-center animate-in fade-in duration-500 delay-300">
               <button
                 onClick={() => {
                   setMode(mode === 'login' ? 'signup' : 'login');
@@ -460,29 +418,24 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                   : 'Already have an account? Sign in'}
                 <ArrowRight className="w-4 h-4" />
               </button>
-            </motion.div>
+            </div>
 
             {/* Footer */}
-            <motion.div
-              className="mt-10 pt-6 border-t border-border/30 text-center"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.4 }}
-            >
+            <div className="mt-10 pt-6 border-t border-border/30 text-center animate-in fade-in duration-500 delay-[400ms]">
               <p className="text-xs text-muted-foreground leading-relaxed">
                 By continuing, you agree to our{' '}
                 <span className="text-primary hover:underline cursor-pointer font-medium">Terms of Service</span>
                 {' '}and{' '}
                 <span className="text-primary hover:underline cursor-pointer font-medium">Privacy Policy</span>
               </p>
-            </motion.div>
+            </div>
           </div>
         </div>
 
         {/* Refined decorative elements */}
         <div className="absolute -z-10 top-0 left-0 w-40 h-40 bg-gradient-to-br from-primary/15 to-transparent rounded-full blur-3xl" />
         <div className="absolute -z-10 bottom-0 right-0 w-40 h-40 bg-gradient-to-tl from-accent/15 to-transparent rounded-full blur-3xl" />
-      </motion.div>
+      </div>
     </div>
   );
 }

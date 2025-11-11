@@ -5,8 +5,7 @@
  * This utility is designed to fix "Auth session missing" and "Invalid token" errors.
  */
 
-import { createClient } from './supabase/client';
-import { projectId } from './supabase/info';
+import { createClient, projectId } from './supabase/direct-api-client';
 import { clearTokenCache, startBackgroundRefresh } from './token-manager';
 
 interface SessionValidationResult {

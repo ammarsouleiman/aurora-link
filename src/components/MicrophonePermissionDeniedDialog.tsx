@@ -1,4 +1,4 @@
-import { AlertCircle, Settings } from 'lucide-react';
+import { AlertCircle, Settings } from './ui/icons';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -80,7 +80,7 @@ export function MicrophonePermissionDeniedDialog({
         </div>
         
         <AlertDialogFooter>
-          <AlertDialogAction onClick={() => onOpenChange(false)}>
+          <AlertDialogAction>
             Got It
           </AlertDialogAction>
         </AlertDialogFooter>

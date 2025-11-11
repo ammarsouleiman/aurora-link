@@ -12,13 +12,19 @@ import {
   CheckCheck,
   Clock,
   Phone,
-  Mail
-} from 'lucide-react';
+  Mail,
+  Trash2,
+  AlertTriangle,
+  RefreshCw,
+  Search,
+  Bug
+} from '../ui/icons';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
 import { Avatar } from '../Avatar';
 import { toast } from '../../utils/toast';
-import { uploadApi, profileApi } from '../../utils/api';
+import { uploadApi, profileApi, accountApi } from '../../utils/api';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/alert-dialog';
 import { requestNotificationPermission, getNotificationPermission } from '../../utils/notifications';
 import type { User as UserType } from '../../utils/types';
 
@@ -26,9 +32,11 @@ interface SettingsScreenProps {
   currentUser: UserType;
   onBack: () => void;
   onUserUpdate: (user: UserType) => void;
+  onLogout?: () => void;
+  onNavigate?: (view: string, data?: any) => void;
 }
 
-export function SettingsScreen({ currentUser, onBack, onUserUpdate }: SettingsScreenProps) {
+export function SettingsScreen({ currentUser, onBack, onUserUpdate, onLogout, onNavigate }: SettingsScreenProps) {
   const [avatarUrl, setAvatarUrl] = useState(currentUser.avatar_url);
   const [notificationPermission, setNotificationPermission] = useState(getNotificationPermission());
   const [isEditingName, setIsEditingName] = useState(false);
@@ -36,6 +44,8 @@ export function SettingsScreen({ currentUser, onBack, onUserUpdate }: SettingsSc
   const [tempName, setTempName] = useState(currentUser.full_name);
   const [tempStatus, setTempStatus] = useState(currentUser.status_message || currentUser.status || 'Hey there! I am using AuroraLink.');
   const [uploading, setUploading] = useState(false);
+  const [repairingCounts, setRepairingCounts] = useState(false);
+  const [runningDiagnostic, setRunningDiagnostic] = useState(false);
   
   // Load preferences from localStorage
   const [soundEnabled, setSoundEnabled] = useState(() => {
@@ -69,7 +79,7 @@ export function SettingsScreen({ currentUser, onBack, onUserUpdate }: SettingsSc
 
     setUploading(true);
     const result = await uploadApi.uploadFile(file, 'avatar');
-
+    
     if (result.success && result.data?.url) {
       setAvatarUrl(result.data.url);
       const updateResult = await profileApi.update({ avatar_url: result.data.url });
@@ -79,13 +89,9 @@ export function SettingsScreen({ currentUser, onBack, onUserUpdate }: SettingsSc
           avatar_url: result.data.url,
         });
         toast.success('Profile photo updated');
-      } else {
-        toast.error('فشل تحديث البروفايل بالصورة الجديدة.');
       }
-    } else {
-      toast.error(result.error || 'فشل رفع صورة البروفايل.');
     }
-
+    
     setUploading(false);
   };
 
@@ -138,6 +144,61 @@ export function SettingsScreen({ currentUser, onBack, onUserUpdate }: SettingsSc
   const handleProfilePhotoVisibilityChange = (value: string) => {
     setProfilePhotoVisibility(value);
     localStorage.setItem('profilePhotoVisibility', value);
+  };
+
+  const handleRunDiagnostic = async () => {
+    setRunningDiagnostic(true);
+    try {
+      const result = await profileApi.diagnostic();
+      if (result.success && result.data) {
+        const { diagnostic } = result.data;
+        console.log('🔍 Diagnostic Results:', diagnostic);
+        
+        // Show diagnostic in console
+        console.log('📊 Your Data:');
+        console.log(`   Posts: ${diagnostic.actual_data.posts.count}`);
+        console.log(`   Followers: ${diagnostic.actual_data.followers.count}`);
+        console.log(`   Following: ${diagnostic.actual_data.following.count}`);
+        console.log('');
+        console.log('💾 Stored Counts:');
+        console.log(`   Posts: ${diagnostic.stored_counts.posts_count}`);
+        console.log(`   Followers: ${diagnostic.stored_counts.followers_count}`);
+        console.log(`   Following: ${diagnostic.stored_counts.following_count}`);
+        
+        toast.success(`Found: ${diagnostic.actual_data.posts.count} posts, ${diagnostic.actual_data.followers.count} followers, ${diagnostic.actual_data.following.count} following. Check console (F12) for details.`);
+      } else {
+        toast.error(result.error || 'Failed to run diagnostic');
+      }
+    } catch (error) {
+      console.error('Error running diagnostic:', error);
+      toast.error('Failed to run diagnostic');
+    } finally {
+      setRunningDiagnostic(false);
+    }
+  };
+
+  const handleRepairCounts = async () => {
+    setRepairingCounts(true);
+    try {
+      const result = await profileApi.repairCounts();
+      if (result.success && result.data) {
+        const { old_counts, new_counts } = result.data;
+        console.log('📊 Counts repaired:', { old_counts, new_counts });
+        toast.success(`Counts fixed! Posts: ${new_counts.posts}, Followers: ${new_counts.followers}, Following: ${new_counts.following}`);
+        
+        // Reload the page to show updated counts
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      } else {
+        toast.error(result.error || 'Failed to repair counts');
+      }
+    } catch (error) {
+      console.error('Error repairing counts:', error);
+      toast.error('Failed to repair counts');
+    } finally {
+      setRepairingCounts(false);
+    }
   };
 
   return (
@@ -255,6 +316,57 @@ export function SettingsScreen({ currentUser, onBack, onUserUpdate }: SettingsSc
                 <p className="mt-0.5">@{currentUser.username}</p>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Tools */}
+        <div className="mt-6">
+          <div className="px-6 py-2">
+            <p className="text-sm text-primary">Tools</p>
+          </div>
+          
+          <div className="bg-surface">
+            <button
+              onClick={() => onNavigate?.('data-debug')}
+              className="w-full px-6 py-4 flex items-center gap-4 hover:bg-[var(--hover-surface)] transition-colors border-b border-border"
+            >
+              <Bug className="w-5 h-5 text-purple-500" />
+              <div className="flex-1 text-left">
+                <p>Data Debug Tool</p>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  See your real data in detail
+                </p>
+              </div>
+              <ChevronRight className="w-5 h-5 text-muted-foreground" />
+            </button>
+            
+            <button
+              onClick={handleRunDiagnostic}
+              disabled={runningDiagnostic}
+              className="w-full px-6 py-4 flex items-center gap-4 hover:bg-[var(--hover-surface)] transition-colors disabled:opacity-50 border-b border-border"
+            >
+              <Search className={`w-5 h-5 text-[#00A8E8] ${runningDiagnostic ? 'animate-pulse' : ''}`} />
+              <div className="flex-1 text-left">
+                <p>Quick Data Check</p>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  {runningDiagnostic ? 'Scanning...' : 'Check console for data'}
+                </p>
+              </div>
+            </button>
+            
+            <button
+              onClick={handleRepairCounts}
+              disabled={repairingCounts}
+              className="w-full px-6 py-4 flex items-center gap-4 hover:bg-[var(--hover-surface)] transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-5 h-5 text-[#25D366] ${repairingCounts ? 'animate-spin' : ''}`} />
+              <div className="flex-1 text-left">
+                <p>Fix Profile Counts</p>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  {repairingCounts ? 'Recalculating...' : 'Update counts from real data'}
+                </p>
+              </div>
+            </button>
           </div>
         </div>
 

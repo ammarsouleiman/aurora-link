@@ -1,4 +1,4 @@
-import { User as UserIcon } from 'lucide-react';
+import { User as UserIcon } from './ui/icons';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import type { User } from '../utils/types';
 

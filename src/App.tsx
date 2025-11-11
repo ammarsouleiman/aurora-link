@@ -1,4 +1,6 @@
-// AuroraLink - Professional WhatsApp-style Messaging App v1.1
+// AuroraLink v9.0.0 - Production Build with Instagram Features
+import './utils/nuclear-session-cleaner'; // NUCLEAR: Complete clear of ALL auth data (handles everything)
+import './utils/startup-message'; // Show startup message
 import { useState, useEffect, useRef } from 'react';
 import { Toaster } from './components/ui/sonner';
 import { SplashScreen } from './components/screens/SplashScreen';
@@ -12,21 +14,54 @@ import { CallScreen } from './components/screens/CallScreen';
 import { StoryViewerScreen } from './components/screens/StoryViewerScreen';
 import { StoryComposerScreen } from './components/screens/StoryComposerScreen';
 import { ProfileViewScreen } from './components/screens/ProfileViewScreen';
+import { FeedScreen } from './components/screens/FeedScreen';
+import { PostComposerScreen } from './components/screens/PostComposerScreen';
+import { PostDetailScreen } from './components/screens/PostDetailScreen';
+import { ExploreScreen } from './components/screens/ExploreScreen';
+import { EnhancedProfileScreen } from './components/screens/EnhancedProfileScreen';
+import { ReelsScreen } from './components/screens/ReelsScreen';
+import { ReelComposerScreen } from './components/screens/ReelComposerScreen';
+import { NotificationsScreen } from './components/screens/NotificationsScreen';
+import { FollowersListScreen } from './components/screens/FollowersListScreen';
+import { DataDebugScreen } from './components/screens/DataDebugScreen';
+import { BottomNavigation } from './components/BottomNavigation';
 import { IncomingCallDialog } from './components/IncomingCallDialog';
 import { PermissionRequestDialog } from './components/PermissionRequestDialog';
 import { AuthErrorBoundary } from './components/AuthErrorBoundary';
-import { createClient, getCurrentUser } from './utils/supabase/client';
-import { projectId } from './utils/supabase/info';
+import { createClient, getCurrentUser, projectId } from './utils/supabase/direct-api-client';
 import { presenceApi, callsApi, blockApi, conversationsApi } from './utils/api';
 import { WebRTCManager } from './utils/webrtc';
 import { toast } from './utils/toast';
 import { emergencyClearSession } from './utils/emergency-session-cleaner';
 import { initializeSessionRecovery, clearAuthSession } from './utils/session-recovery';
-import { startBackgroundRefresh, stopBackgroundRefresh, clearTokenCache, getTokenCacheInfo } from './utils/token-manager';
+import { startBackgroundRefresh, stopBackgroundRefresh, clearTokenCache, forceClearTokenCache, getTokenCacheInfo } from './utils/token-manager';
+import { forceReauth } from './utils/force-reauth';
+import { validateAndCleanSession } from './utils/validate-session-with-server';
+import { installFetchInterceptor, checkSessionValidity } from './utils/auth-error-handler';
 import './utils/fix-auth-errors'; // Auto-loads console utilities
+import './utils/status-checker'; // Auto-loads status checker
 import type { User as UserType, ViewState, Call, UserStories } from './utils/types';
 
+// Helper function to decode JWT tokens
+function decodeJWT(token: string): { exp?: number; iss?: string; sub?: string } | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = parts[1];
+    const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(decoded);
+  } catch (error) {
+    console.error('[decodeJWT] Failed to decode:', error);
+    return null;
+  }
+}
+
 export default function App() {
+  // Production build - clean minimal dependencies
+  console.log('[AuroraLink] v9.0.0 - Instagram Features Build');
+  console.log('[AuroraLink] CSS Animations Only - No Motion Libraries');
+  console.log('[AuroraLink] 🧹 All auth session errors fixed');
+  
   const [showSplash, setShowSplash] = useState(true);
   const [currentView, setCurrentView] = useState<ViewState>('onboarding');
   const [currentUser, setCurrentUser] = useState<UserType | null>(null);
@@ -48,6 +83,10 @@ export default function App() {
   
   // Global helpers for manual session clearing (can be called from browser console)
   useEffect(() => {
+    // Install automatic auth error handler
+    installFetchInterceptor();
+    console.log('[App] ✅ Auth error handler installed');
+    
     // Basic session clear
     (window as any).clearAuroraSession = async () => {
       console.log('[Manual Clear] Clearing session...');
@@ -68,11 +107,19 @@ export default function App() {
       return info;
     };
     
+    // Session validity checker
+    (window as any).checkSession = async () => {
+      const isValid = await checkSessionValidity();
+      console.log('🔐 Session valid:', isValid);
+      return isValid;
+    };
+    
     // Log available commands
     console.log('💡 AuroraLink Session Clearing Commands:');
     console.log('  - window.clearAuroraSession() - Basic session clear');
     console.log('  - window.emergencyClearSession() - Emergency full clear');
     console.log('  - window.checkTokenCache() - Check token cache status');
+    console.log('  - window.checkSession() - Validate current session');
     
     // AGGRESSIVE: Clear any sessions from wrong projects on EVERY app load
     const clearWrongProjectSessions = () => {
@@ -118,6 +165,15 @@ export default function App() {
   const [profileViewLastSeen, setProfileViewLastSeen] = useState<string>('');
   const [returnToConversation, setReturnToConversation] = useState<string | null>(null);
   
+  // Instagram-style features state
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(null);
+  const [showPostComposer, setShowPostComposer] = useState(false);
+  const [showReelComposer, setShowReelComposer] = useState(false);
+  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
+  const [followersListUserId, setFollowersListUserId] = useState<string | null>(null);
+  const [followersListMode, setFollowersListMode] = useState<'followers' | 'following'>('followers');
+  
   // Call state
   const [activeCall, setActiveCall] = useState<Call | null>(null);
   const [callRecipient, setCallRecipient] = useState<UserType | null>(null);
@@ -134,26 +190,129 @@ export default function App() {
   useEffect(() => {
     let timer: NodeJS.Timeout;
     
-    // Helper to decode JWT to check project ID
-    const decodeJWT = (token: string): any => {
-      try {
-        const parts = token.split('.');
-        if (parts.length !== 3) return null;
-        const payload = parts[1];
-        const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
-        return JSON.parse(decoded);
-      } catch (error) {
-        return null;
-      }
-    };
-    
     // Immediately validate and clear any corrupted sessions on mount
     const validateStartupSession = async () => {
       try {
+        // Check if the aggressive cleaner cleared invalid tokens
+        const invalidTokenCleared = sessionStorage.getItem('invalid_token_cleared');
+        if (invalidTokenCleared) {
+          console.log('[Startup] 🚨 Invalid tokens were detected and cleared');
+          sessionStorage.removeItem('invalid_token_cleared');
+          
+          toast.error('Invalid Session Detected', {
+            description: 'Your previous session was invalid. Please log in again.',
+            duration: 6000,
+          });
+          
+          setLoading(false);
+          setCurrentView('auth');
+          return;
+        }
+        
         console.log('[Startup] 🔍 Validating existing session...');
         console.log('[Startup] Current project ID:', projectId);
         
-        // NEW: Use our session recovery utility
+        // AGGRESSIVE: Check for invalid token immediately before anything else
+        const sessionKey = `sb-${projectId}-auth-token`;
+        const storedSession = localStorage.getItem(sessionKey);
+        
+        if (storedSession) {
+          try {
+            const sessionData = JSON.parse(storedSession);
+            if (sessionData?.access_token) {
+              // Decode token to check if it's from the correct project
+              const decoded = decodeJWT(sessionData.access_token);
+              const expectedIssuer = `https://${projectId}.supabase.co/auth/v1`;
+              
+              if (!decoded || decoded.iss !== expectedIssuer) {
+                console.error('[Startup] 🚨 INVALID TOKEN DETECTED - CLEARING IMMEDIATELY');
+                console.error('[Startup] Token issuer:', decoded?.iss);
+                console.error('[Startup] Expected:', expectedIssuer);
+                
+                // Clear everything immediately
+                localStorage.clear();
+                sessionStorage.clear();
+                
+                toast.error('Session Cleared', {
+                  description: 'Invalid session detected. Please log in again.',
+                  duration: 4000,
+                });
+                
+                setLoading(false);
+                setCurrentView('auth');
+                return;
+              }
+              
+              // Check if token is expired
+              if (decoded.exp) {
+                const now = Math.floor(Date.now() / 1000);
+                if (decoded.exp < now) {
+                  console.error('[Startup] 🚨 EXPIRED TOKEN DETECTED - CLEARING');
+                  localStorage.clear();
+                  sessionStorage.clear();
+                  
+                  toast.error('Session Expired', {
+                    description: 'Your session has expired. Please log in again.',
+                    duration: 4000,
+                  });
+                  
+                  setLoading(false);
+                  setCurrentView('auth');
+                  return;
+                }
+              }
+            }
+          } catch (parseError) {
+            console.error('[Startup] Error parsing session - clearing');
+            localStorage.clear();
+            sessionStorage.clear();
+            setLoading(false);
+            setCurrentView('auth');
+            return;
+          }
+        }
+        
+        // Check if nuclear clear just ran - if so, skip validation (nothing to validate)
+        const nuclearClearJustRan = sessionStorage.getItem('nuclear_clear_performed');
+        if (nuclearClearJustRan) {
+          console.log('[Startup] ✨ Nuclear clear completed - starting fresh');
+          console.log('[Startup] Skipping validation (no session exists yet)');
+          
+          // CRITICAL: Force clear token cache to prevent stale tokens
+          forceClearTokenCache();
+          console.log('[Startup] 🧹 Forced token cache clear');
+          
+          // IMPORTANT: Keep nuclear_clear_in_progress flag SET until user logs in
+          // This prevents any stale API calls from happening before authentication
+          console.log('[Startup] ⚠️  Keeping nuclear_clear_in_progress flag active until login');
+          console.log('[Startup] Flag will be cleared automatically after successful login');
+          
+          // Show friendly welcome message
+          setTimeout(() => {
+            toast.success('Welcome to AuroraLink!', {
+              description: 'Please log in to continue',
+              duration: 3000,
+            });
+          }, 500);
+          
+          setLoading(false);
+          return;
+        }
+        
+        // FIRST: Validate session with actual server call
+        console.log('[Startup] Step 1: Testing session with server...');
+        const sessionIsValid = await validateAndCleanSession();
+        
+        if (!sessionIsValid) {
+          console.log('[Startup] ❌ Session validation failed or no session exists');
+          // Don't show error, just let normal flow continue (will show auth screen)
+          setLoading(false);
+          return;
+        }
+        
+        console.log('[Startup] ✅ Session validated with server');
+        
+        // SECOND: Use our session recovery utility
         const recoveryResult = await initializeSessionRecovery();
         
         if (recoveryResult.hadError && !recoveryResult.fixed) {
@@ -189,73 +348,7 @@ export default function App() {
           console.log('[Startup] ✅ No session errors detected');
         }
         
-        // Check localStorage directly for session data
-        const sessionKey = `sb-${projectId}-auth-token`;
-        const storedSession = localStorage.getItem(sessionKey);
-        
-        if (storedSession) {
-          try {
-            const sessionData = JSON.parse(storedSession);
-            if (sessionData?.access_token) {
-              console.log('[Startup] Found stored session token, validating...');
-              
-              // Check token format
-              if (!sessionData.access_token.startsWith('eyJ')) {
-                console.error('[Startup] 🚨 Invalid token format - clearing immediately');
-                localStorage.clear();
-                toast.error('Session Cleared', {
-                  description: 'Invalid session detected. Please log in again.',
-                  duration: 5000,
-                });
-                return;
-              }
-              
-              // Decode and check project
-              const decoded = decodeJWT(sessionData.access_token);
-              if (decoded) {
-                const expectedIssuer = `https://${projectId}.supabase.co/auth/v1`;
-                console.log('[Startup] Token issuer:', decoded.iss);
-                console.log('[Startup] Expected issuer:', expectedIssuer);
-                
-                if (decoded.iss !== expectedIssuer) {
-                  console.error('[Startup] 🚨 TOKEN FROM DIFFERENT PROJECT DETECTED!');
-                  console.error('[Startup] This token belongs to:', decoded.iss);
-                  console.error('[Startup] Current project:', expectedIssuer);
-                  console.error('[Startup] Clearing mismatched session...');
-                  
-                  // Increment auth error count
-                  const newCount = authErrorCountRef.current + 1;
-                  authErrorCountRef.current = newCount;
-                  setAuthErrorCount(newCount);
-                  localStorage.setItem('aurora_auth_error_count', newCount.toString());
-                  
-                  clearAuthSession();
-                  
-                  // If repeated errors, just force to auth screen
-                  if (newCount > 2) {
-                    console.error('[Startup] Too many auth errors - forcing auth screen');
-                    setLoading(false);
-                    setCurrentView('auth');
-                    return;
-                  }
-                  
-                  setShowAuthError(true);
-                  setLoading(false);
-                  
-                  return;
-                }
-                
-                console.log('[Startup] ✅ Token project ID matches');
-              }
-            }
-          } catch (parseError) {
-            console.error('[Startup] Error parsing stored session:', parseError);
-            localStorage.clear();
-            return;
-          }
-        }
-        
-        // Now try with Supabase client
+        // Token was already checked above, now try with Supabase client
         const supabase = createClient();
         const { data: { session }, error } = await supabase.auth.getSession();
         
@@ -295,6 +388,19 @@ export default function App() {
       }
     };
     
+    // Check if migration just ran
+    const migrationJustRan = sessionStorage.getItem('show_migration_message');
+    if (migrationJustRan) {
+      sessionStorage.removeItem('show_migration_message');
+      // Show message after a short delay to ensure toast is initialized
+      setTimeout(() => {
+        toast.info('App Updated', {
+          description: 'New authentication system. Please log in again.',
+          duration: 6000,
+        });
+      }, 1000);
+    }
+    
     // Validate session immediately, then show splash and check auth
     validateStartupSession().then(() => {
       timer = setTimeout(() => {
@@ -311,17 +417,27 @@ export default function App() {
   useEffect(() => {
     // Session health check - validate and refresh session periodically
     if (currentUser && currentView === 'home') {
+      let consecutiveFailures = 0;
+      const MAX_FAILURES_BEFORE_LOGOUT = 3;
+      
       const checkSessionHealth = async () => {
         try {
           const supabase = createClient();
           const { data: { session }, error } = await supabase.auth.getSession();
           
           if (error || !session) {
-            console.error('[Session Health] Session lost, logging out...');
-            toast.error('Session expired', {
-              description: 'Please log in again to continue.',
-            });
-            await handleLogout();
+            // Only log out if we've had multiple consecutive failures
+            consecutiveFailures++;
+            
+            if (consecutiveFailures >= MAX_FAILURES_BEFORE_LOGOUT) {
+              console.error('[Session Health] Session lost after multiple checks, logging out...');
+              toast.error('Session expired', {
+                description: 'Please log in again to continue.',
+              });
+              await handleLogout();
+            } else {
+              console.warn(`[Session Health] Session check failed (${consecutiveFailures}/${MAX_FAILURES_BEFORE_LOGOUT})`);
+            }
             return;
           }
           
@@ -343,13 +459,20 @@ export default function App() {
               const { data: { session: newSession }, error: refreshError } = await supabase.auth.refreshSession();
               
               if (refreshError || !newSession) {
-                console.error('[Session Health] Refresh failed, logging out...');
-                toast.error('Session expired', {
-                  description: 'Please log in again to continue.',
-                });
-                await handleLogout();
+                consecutiveFailures++;
+                
+                if (consecutiveFailures >= MAX_FAILURES_BEFORE_LOGOUT) {
+                  console.error('[Session Health] Refresh failed multiple times, logging out...');
+                  toast.error('Session expired', {
+                    description: 'Please log in again to continue.',
+                  });
+                  await handleLogout();
+                } else {
+                  console.warn(`[Session Health] Refresh failed (${consecutiveFailures}/${MAX_FAILURES_BEFORE_LOGOUT})`);
+                }
               } else {
                 console.log('[Session Health] ✅ Session refreshed successfully');
+                consecutiveFailures = 0; // Reset on success
               }
             } else if (timeUntilExpiry < 5 * 60 * 1000) {
               // Proactively refresh if expiring within 5 minutes
@@ -358,54 +481,124 @@ export default function App() {
               
               if (!refreshError && newSession) {
                 console.log('[Session Health] ✅ Session proactively refreshed');
+                consecutiveFailures = 0; // Reset on success
               } else {
                 console.warn('[Session Health] Proactive refresh failed, will retry later');
+                // Don't increment failures for proactive refresh
               }
             }
           }
           
           // Validate token can actually be used by calling getUser()
-          const { error: userError } = await supabase.auth.getUser();
-          if (userError) {
-            console.error('[Session Health] Token validation failed:', userError.message);
-            console.error('[Session Health] Error name:', userError.name);
-            
-            // If it's an AuthSessionMissingError, the token is completely invalid
-            if (userError.name === 'AuthSessionMissingError' || userError.message.includes('Auth session missing')) {
-              console.error('[Session Health] CRITICAL: Auth session missing error detected');
-              console.error('[Session Health] This means the token is from a different project or corrupted');
+          // Only do this check occasionally to reduce network load
+          const shouldValidateUser = Date.now() % 2 === 0; // 50% chance
+          
+          if (shouldValidateUser) {
+            const { error: userError } = await supabase.auth.getUser();
+            if (userError) {
+              // Check if this is a network error
+              const isNetworkError = 
+                userError.message === 'Failed to fetch' ||
+                userError.message.includes('network') ||
+                userError.message.includes('fetch') ||
+                userError.name === 'TypeError';
               
-              // Show the error boundary instead of just toasting
-              clearAuthSession();
-              setShowAuthError(true);
-              return;
-            } else {
-              // For other errors, try refreshing once
-              console.warn('[Session Health] Attempting one-time session refresh...');
-              const { error: refreshError } = await supabase.auth.refreshSession();
-              
-              if (refreshError) {
-                console.error('[Session Health] Refresh failed, logging out');
-                toast.error('Session Error', {
-                  description: 'Could not refresh your session. Please log in again.',
-                });
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                await handleLogout();
-              } else {
-                console.log('[Session Health] ✅ Session refreshed successfully');
+              if (isNetworkError) {
+                console.warn('[Session Health] Network error during validation:', userError.message);
+                consecutiveFailures++;
+                
+                if (consecutiveFailures >= MAX_FAILURES_BEFORE_LOGOUT) {
+                  console.error('[Session Health] Too many network failures, logging out');
+                  toast.error('Connection Error', {
+                    description: 'Unable to verify session. Please check your connection and log in again.',
+                  });
+                  await handleLogout();
+                } else {
+                  console.log(`[Session Health] Network error (${consecutiveFailures}/${MAX_FAILURES_BEFORE_LOGOUT}) - will retry`);
+                }
+                return;
               }
+              
+              console.error('[Session Health] Token validation failed:', userError.message);
+              console.error('[Session Health] Error name:', userError.name);
+              
+              // If it's an AuthSessionMissingError, the token is completely invalid
+              if (userError.name === 'AuthSessionMissingError' || userError.message.includes('Auth session missing')) {
+                console.error('[Session Health] CRITICAL: Auth session missing error detected');
+                console.error('[Session Health] This means the token is from a different project or corrupted');
+                
+                // Show the error boundary instead of just toasting
+                clearAuthSession();
+                setShowAuthError(true);
+                return;
+              } else {
+                // For other errors, try refreshing once
+                console.warn('[Session Health] Attempting one-time session refresh...');
+                const { error: refreshError } = await supabase.auth.refreshSession();
+                
+                if (refreshError) {
+                  // Check if refresh error is network-related
+                  const isRefreshNetworkError = 
+                    refreshError.message === 'Failed to fetch' ||
+                    refreshError.message.includes('network') ||
+                    refreshError.message.includes('fetch');
+                  
+                  if (isRefreshNetworkError) {
+                    console.warn('[Session Health] Network error during refresh, will retry later');
+                    consecutiveFailures++;
+                    return;
+                  }
+                  
+                  console.error('[Session Health] Refresh failed, logging out');
+                  toast.error('Session Error', {
+                    description: 'Could not refresh your session. Please log in again.',
+                  });
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                  await handleLogout();
+                } else {
+                  console.log('[Session Health] ✅ Session refreshed successfully');
+                  consecutiveFailures = 0; // Reset on success
+                }
+              }
+            } else {
+              // Success - reset failure counter
+              consecutiveFailures = 0;
             }
+          } else {
+            // Not validating user this time - still reset on session check success
+            consecutiveFailures = 0;
           }
         } catch (error) {
-          console.error('[Session Health] Error checking session:', error);
+          // Network or other unexpected errors
+          const isNetworkError = 
+            error instanceof TypeError ||
+            (error instanceof Error && (
+              error.message.includes('fetch') ||
+              error.message.includes('network')
+            ));
+          
+          if (isNetworkError) {
+            console.warn('[Session Health] Network error:', error);
+            consecutiveFailures++;
+            
+            if (consecutiveFailures >= MAX_FAILURES_BEFORE_LOGOUT) {
+              console.error('[Session Health] Too many network failures, logging out');
+              toast.error('Connection Error', {
+                description: 'Unable to verify session. Please check your connection and log in again.',
+              });
+              await handleLogout();
+            }
+          } else {
+            console.error('[Session Health] Error checking session:', error);
+          }
         }
       };
       
       // Check immediately on mount
       checkSessionHealth();
       
-      // Check session health every 30 seconds
-      const sessionHealthInterval = setInterval(checkSessionHealth, 30000);
+      // Check session health every 60 seconds (reduced from 30 to reduce network load)
+      const sessionHealthInterval = setInterval(checkSessionHealth, 60000);
       
       return () => {
         clearInterval(sessionHealthInterval);
@@ -475,6 +668,34 @@ export default function App() {
       };
     }
   }, [currentUser, currentView]);
+
+  // Poll for unread notifications
+  useEffect(() => {
+    if (currentUser) {
+      const checkNotifications = async () => {
+        try {
+          const result = await feedApi.getNotifications();
+          if (result.success && result.data?.notifications) {
+            const unreadCount = result.data.notifications.filter((n: any) => !n.read).length;
+            setHasUnreadNotifications(unreadCount > 0);
+          }
+        } catch (error) {
+          // Silently fail - notifications are non-critical
+          console.log('[Notifications] Failed to check:', error);
+        }
+      };
+
+      // Check immediately
+      checkNotifications();
+
+      // Check every 30 seconds
+      const notificationInterval = setInterval(checkNotifications, 30000);
+
+      return () => {
+        clearInterval(notificationInterval);
+      };
+    }
+  }, [currentUser]);
 
   const checkAuth = async () => {
     setLoading(true);
@@ -718,8 +939,45 @@ export default function App() {
           const data = await response.json();
           if (data.user) {
             console.log('[Auth] ✅ Successfully loaded user profile from backend');
+            
+            // Immediately repair counts if they're missing or zero
+            try {
+              console.log('[Auth] 🔧 Repairing profile counts...');
+              const repairResponse = await fetch(
+                `https://${projectId}.supabase.co/functions/v1/make-server-29f6739b/follow/repair-counts`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ user_id: data.user.id }),
+                }
+              );
+              
+              if (repairResponse.ok) {
+                const repairData = await repairResponse.json();
+                console.log('[Auth] ✅ Counts repaired:', repairData.new_counts);
+                
+                // Update user with repaired counts
+                data.user.followers_count = repairData.new_counts.followers;
+                data.user.following_count = repairData.new_counts.following;
+                data.user.posts_count = repairData.new_counts.posts;
+              } else {
+                console.warn('[Auth] ⚠️  Count repair failed, continuing anyway');
+              }
+            } catch (repairError) {
+              console.error('[Auth] Count repair error:', repairError);
+              // Continue anyway - not critical
+            }
+            
             setCurrentUser(data.user);
             setCurrentView('home');
+            
+            // Start background token refresh to keep session alive
+            startBackgroundRefresh();
+            console.log('[Auth] ✅ Background token refresh started');
+            
             setLoading(false);
             return;
           } else {
@@ -758,6 +1016,11 @@ export default function App() {
                   console.log('[Auth] ✅ Successfully loaded user profile after refresh');
                   setCurrentUser(retryData.user);
                   setCurrentView('home');
+                  
+                  // Start background token refresh to keep session alive
+                  startBackgroundRefresh();
+                  console.log('[Auth] ✅ Background token refresh started');
+                  
                   setLoading(false);
                   return;
                 }
@@ -810,6 +1073,10 @@ export default function App() {
       setCurrentUser(fallbackUser);
       setCurrentView('home');
       
+      // Start background token refresh to keep session alive
+      startBackgroundRefresh();
+      console.log('[Auth] ✅ Background token refresh started (fallback flow)');
+      
     } catch (error) {
       console.error('[Auth] ❌ Unexpected error in checkAuth:', error);
       if (error instanceof Error) {
@@ -829,6 +1096,11 @@ export default function App() {
   const handleAuthSuccess = async () => {
     console.log('[App] ========== AUTH SUCCESS HANDLER ==========');
     console.log('[App] Auth success callback triggered');
+    
+    // Clear nuclear clear flags - user has successfully logged in
+    sessionStorage.removeItem('nuclear_clear_in_progress');
+    sessionStorage.removeItem('nuclear_clear_performed');
+    console.log('[App] ✅ Cleared nuclear clear flags - API calls now allowed');
     
     // Reset auth error count on successful authentication
     authErrorCountRef.current = 0;
@@ -947,11 +1219,8 @@ export default function App() {
       return;
     }
     
-    // Start background token refresh system
-    console.log('[App] Starting background token refresh...');
-    startBackgroundRefresh();
-    
     // Now proceed with loading the app
+    // Background token refresh will be started in checkAuth after user is loaded
     console.log('[App] Proceeding to load user data...');
     await checkAuth();
   };
@@ -1263,16 +1532,38 @@ export default function App() {
       )}
 
       {currentView === 'home' && currentUser && (
-        <HomeScreen
-          key={homeScreenKey}
-          currentUser={currentUser}
-          onSelectConversation={handleSelectConversation}
-          onNewChat={handleNewChat}
-          onSettings={handleSettings}
-          onLogout={handleLogout}
-          onViewStory={handleViewStory}
-          onCreateStory={handleCreateStory}
-        />
+        <>
+          <HomeScreen
+            key={homeScreenKey}
+            currentUser={currentUser}
+            onSelectConversation={handleSelectConversation}
+            onNewChat={handleNewChat}
+            onSettings={handleSettings}
+            onLogout={handleLogout}
+            onViewStory={handleViewStory}
+            onCreateStory={handleCreateStory}
+          />
+          <BottomNavigation
+            currentView="home"
+            hasNotifications={hasUnreadNotifications}
+            onNavigate={(view) => {
+              if (view === 'home') setCurrentView('home');
+              else if (view === 'feed') setCurrentView('feed');
+              else if (view === 'create-post') {
+                // Show menu to choose between post or reel
+                setShowPostComposer(true);
+              }
+              else if (view === 'reels') setCurrentView('reels');
+              else if (view === 'notifications') setCurrentView('notifications');
+              else if (view === 'explore') setCurrentView('explore');
+              else if (view === 'settings') {
+                // Show user's own profile
+                setSelectedProfileUserId(currentUser.id);
+                setCurrentView('my-profile');
+              }
+            }}
+          />
+        </>
       )}
 
       {currentView === 'conversation' && currentUser && selectedConversationId && (
@@ -1291,6 +1582,10 @@ export default function App() {
           currentUser={currentUser}
           onBack={handleBackToHome}
           onConversationCreated={handleConversationCreated}
+          onViewProfile={(userId) => {
+            setSelectedProfileUserId(userId);
+            setCurrentView('enhanced-profile');
+          }}
         />
       )}
 
@@ -1299,6 +1594,14 @@ export default function App() {
           currentUser={currentUser}
           onBack={handleBackToHome}
           onUserUpdate={handleUserUpdate}
+          onNavigate={(view) => setCurrentView(view as ViewState)}
+        />
+      )}
+
+      {currentView === 'data-debug' && currentUser && (
+        <DataDebugScreen
+          currentUser={currentUser}
+          onBack={() => setCurrentView('settings')}
         />
       )}
 
@@ -1334,8 +1637,244 @@ export default function App() {
           onBlock={() => handleBlockUser(profileViewUser.id)}
           onUnblock={() => handleUnblockUser(profileViewUser.id)}
           onDelete={returnToConversation ? () => handleDeleteChat(returnToConversation) : undefined}
+          onViewProfile={() => {
+            // Navigate to enhanced profile to see posts/reels
+            setSelectedProfileUserId(profileViewUser.id);
+            setCurrentView('enhanced-profile');
+          }}
           isBlocked={currentUser.blocked_users?.includes(profileViewUser.id)}
           lastSeen={profileViewLastSeen}
+        />
+      )}
+
+      {/* Instagram-style Feed Screen */}
+      {currentView === 'feed' && currentUser && (
+        <>
+          <FeedScreen
+            currentUser={currentUser}
+            onNavigate={(view, data) => {
+              if (view === 'post-detail' && data?.postId) {
+                setSelectedPostId(data.postId);
+                setCurrentView('post-detail');
+              } else if (view === 'profile-view' && data?.userId) {
+                setSelectedProfileUserId(data.userId);
+                setCurrentView('enhanced-profile');
+              }
+            }}
+          />
+          <BottomNavigation
+            currentView="feed"
+            hasNotifications={hasUnreadNotifications}
+            onNavigate={(view) => {
+              if (view === 'home') setCurrentView('home');
+              else if (view === 'feed') setCurrentView('feed');
+              else if (view === 'create-post') setShowPostComposer(true);
+              else if (view === 'reels') setCurrentView('reels');
+              else if (view === 'notifications') setCurrentView('notifications');
+              else if (view === 'explore') setCurrentView('explore');
+              else if (view === 'settings') {
+                setSelectedProfileUserId(currentUser.id);
+                setCurrentView('my-profile');
+              }
+            }}
+          />
+        </>
+      )}
+
+      {/* Instagram-style Explore Screen */}
+      {currentView === 'explore' && currentUser && (
+        <>
+          <ExploreScreen
+            currentUser={currentUser}
+            onNavigate={(view, data) => {
+              if (view === 'post-detail' && data?.postId) {
+                setSelectedPostId(data.postId);
+                setCurrentView('post-detail');
+              } else if (view === 'profile-view' && data?.userId) {
+                setSelectedProfileUserId(data.userId);
+                setCurrentView('enhanced-profile');
+              }
+            }}
+          />
+          <BottomNavigation
+            currentView="explore"
+            hasNotifications={hasUnreadNotifications}
+            onNavigate={(view) => {
+              if (view === 'home') setCurrentView('home');
+              else if (view === 'feed') setCurrentView('feed');
+              else if (view === 'create-post') setShowPostComposer(true);
+              else if (view === 'reels') setCurrentView('reels');
+              else if (view === 'notifications') setCurrentView('notifications');
+              else if (view === 'explore') setCurrentView('explore');
+              else if (view === 'settings') {
+                setSelectedProfileUserId(currentUser.id);
+                setCurrentView('my-profile');
+              }
+            }}
+          />
+        </>
+      )}
+
+      {/* Reels Screen */}
+      {currentView === 'reels' && currentUser && (
+        <>
+          <ReelsScreen
+            onBack={() => setCurrentView('feed')}
+            onOpenComments={(postId) => {
+              setSelectedPostId(postId);
+              setCurrentView('post-detail');
+            }}
+            onViewProfile={(userId) => {
+              setSelectedProfileUserId(userId);
+              setCurrentView('enhanced-profile');
+            }}
+            currentUserId={currentUser.id}
+          />
+        </>
+      )}
+
+      {/* Notifications Screen */}
+      {currentView === 'notifications' && currentUser && (
+        <>
+          <NotificationsScreen
+            onBack={() => setCurrentView('feed')}
+            onViewProfile={(userId) => {
+              setSelectedProfileUserId(userId);
+              setCurrentView('enhanced-profile');
+            }}
+            onViewPost={(postId) => {
+              setSelectedPostId(postId);
+              setCurrentView('post-detail');
+            }}
+            onUserUpdate={(updates) => {
+              setCurrentUser(prev => ({
+                ...prev,
+                ...updates
+              }));
+            }}
+          />
+          <BottomNavigation
+            currentView="notifications"
+            hasNotifications={hasUnreadNotifications}
+            onNavigate={(view) => {
+              if (view === 'home') setCurrentView('home');
+              else if (view === 'feed') setCurrentView('feed');
+              else if (view === 'create-post') setShowPostComposer(true);
+              else if (view === 'reels') setCurrentView('reels');
+              else if (view === 'notifications') setCurrentView('notifications');
+              else if (view === 'explore') setCurrentView('explore');
+              else if (view === 'settings') {
+                setSelectedProfileUserId(currentUser.id);
+                setCurrentView('my-profile');
+              }
+            }}
+          />
+        </>
+      )}
+
+      {/* Post Detail Screen */}
+      {currentView === 'post-detail' && currentUser && selectedPostId && (
+        <PostDetailScreen
+          postId={selectedPostId}
+          currentUser={currentUser}
+          onClose={() => {
+            setSelectedPostId(null);
+            setCurrentView('feed');
+          }}
+          onNavigate={(view, data) => {
+            if (view === 'profile-view' && data?.userId) {
+              setSelectedProfileUserId(data.userId);
+              setCurrentView('enhanced-profile');
+            }
+          }}
+        />
+      )}
+
+      {/* Enhanced Profile Screen (Instagram-style) */}
+      {currentView === 'enhanced-profile' && currentUser && selectedProfileUserId && (
+        <EnhancedProfileScreen
+          userId={selectedProfileUserId}
+          currentUser={currentUser}
+          onBack={() => {
+            setSelectedProfileUserId(null);
+            setCurrentView('feed');
+          }}
+          onNavigate={(view, data) => {
+            if (view === 'post-detail' && data?.postId) {
+              setSelectedPostId(data.postId);
+              setCurrentView('post-detail');
+            } else if (view === 'new-chat' && data?.userId) {
+              // Navigate to create DM with this user
+              setCurrentView('group-create');
+            } else if (view === 'edit-profile') {
+              setCurrentView('settings');
+            } else if (view === 'profile' && data?.userId) {
+              setSelectedProfileUserId(data.userId);
+              setCurrentView('enhanced-profile');
+            }
+          }}
+          onUserUpdate={(updates) => {
+            setCurrentUser(prev => ({
+              ...prev,
+              ...updates
+            }));
+          }}
+        />
+      )}
+
+      {/* My Profile Screen (User's own profile from bottom nav) */}
+      {currentView === 'my-profile' && currentUser && (
+        <>
+          <EnhancedProfileScreen
+            userId={currentUser.id}
+            currentUser={currentUser}
+            onBack={() => setCurrentView('feed')}
+            onNavigate={(view, data) => {
+              if (view === 'post-detail' && data?.postId) {
+                setSelectedPostId(data.postId);
+                setCurrentView('post-detail');
+              } else if (view === 'edit-profile') {
+                setCurrentView('settings');
+              } else if (view === 'profile' && data?.userId) {
+                setSelectedProfileUserId(data.userId);
+                setCurrentView('enhanced-profile');
+              }
+            }}
+            onUserUpdate={(updates) => {
+              setCurrentUser(prev => ({
+                ...prev,
+                ...updates
+              }));
+            }}
+          />
+          <BottomNavigation
+            currentView="settings"
+            hasNotifications={hasUnreadNotifications}
+            onNavigate={(view) => {
+              if (view === 'home') setCurrentView('home');
+              else if (view === 'feed') setCurrentView('feed');
+              else if (view === 'create-post') setShowPostComposer(true);
+              else if (view === 'reels') setCurrentView('reels');
+              else if (view === 'notifications') setCurrentView('notifications');
+              else if (view === 'explore') setCurrentView('explore');
+              else if (view === 'settings') {
+                setSelectedProfileUserId(currentUser.id);
+                setCurrentView('my-profile');
+              }
+            }}
+          />
+        </>
+      )}
+
+      {/* Post Composer Modal */}
+      {showPostComposer && currentUser && (
+        <PostComposerScreen
+          currentUser={currentUser}
+          onClose={() => setShowPostComposer(false)}
+          onPostCreated={() => {
+            setShowPostComposer(false);
+            setCurrentView('feed');
+          }}
         />
       )}
 

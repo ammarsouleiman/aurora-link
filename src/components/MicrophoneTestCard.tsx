@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Mic, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { Mic, CheckCircle, XCircle, AlertCircle } from './ui/icons';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription } from './ui/alert';

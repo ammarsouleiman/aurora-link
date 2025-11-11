@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, UserPlus, Loader2, Phone } from 'lucide-react';
+import { Search, UserPlus, Loader2, Phone } from './ui/icons';
 import {
   Dialog,
   DialogContent,
@@ -13,7 +13,7 @@ import { Avatar } from './Avatar';
 import { toast } from '../utils/toast';
 import { formatToE164, COUNTRY_CODES } from '../utils/phone';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
-import { getAccessToken } from '../utils/supabase/client';
+import { getAccessToken } from '../utils/supabase/direct-api-client';
 import type { User } from '../utils/types';
 
 interface FindByPhoneDialogProps {
@@ -127,24 +127,22 @@ export function FindByPhoneDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-[calc(100%-2rem)] xs:w-[calc(100%-3rem)] xs:max-w-[calc(100%-3rem)] sm:w-full sm:max-w-md p-3 xs:p-4 sm:p-6 gap-3 sm:gap-4 max-h-[90vh] overflow-y-auto">
-        <DialogHeader className="space-y-1.5 sm:space-y-2 pr-6">
-          <DialogTitle className="flex items-center gap-2 text-sm xs:text-base sm:text-lg">
-            <Phone className="h-4 w-4 sm:h-5 sm:w-5 text-primary flex-shrink-0" />
-            <span className="truncate">Find User by Phone</span>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Phone className="h-5 w-5 text-primary" />
+            Find User by Phone
           </DialogTitle>
-          <DialogDescription className="text-[11px] xs:text-xs sm:text-sm leading-relaxed">
+          <DialogDescription>
             Enter a phone number to find and connect with AuroraLink users
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 xs:space-y-4 sm:space-y-5 py-1 xs:py-2 sm:py-3">
+        <div className="space-y-4">
           {!foundUser ? (
             <>
-              <div>
-                <label className="block mb-2 sm:mb-3 text-xs sm:text-sm font-medium px-0.5">
-                  Phone Number
-                </label>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Phone Number</label>
                 <PhoneInput
                   value={phone}
                   dialCode={dialCode}
@@ -159,47 +157,43 @@ export function FindByPhoneDialog({
                 />
               </div>
 
-              <div className="flex gap-2 pt-1">
-                <Button
-                  onClick={handleSearch}
-                  disabled={isSearching || !phone}
-                  className="flex-1 h-11 sm:h-10 touch-manipulation text-sm sm:text-base"
-                >
-                  {isSearching ? (
-                    <>
-                      <Loader2 className="mr-1.5 sm:mr-2 h-4 w-4 animate-spin flex-shrink-0" />
-                      <span className="truncate">Searching...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Search className="mr-1.5 sm:mr-2 h-4 w-4 flex-shrink-0" />
-                      <span className="truncate">Search</span>
-                    </>
-                  )}
-                </Button>
-              </div>
+              <Button
+                onClick={handleSearch}
+                disabled={isSearching || !phone}
+                className="w-full"
+              >
+                {isSearching ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Searching...
+                  </>
+                ) : (
+                  <>
+                    <Search className="mr-2 h-4 w-4" />
+                    Search
+                  </>
+                )}
+              </Button>
             </>
           ) : (
-            <div className="space-y-3 sm:space-y-4">
+            <div className="space-y-4">
               {/* User Found Card */}
-              <div className="rounded-lg border border-success/50 bg-success/10 p-2.5 xs:p-3 sm:p-4 hover:bg-success/15 transition-colors touch-manipulation">
-                <div className="flex items-center gap-2.5 xs:gap-3 sm:gap-4">
-                  <div className="flex-shrink-0">
-                    <Avatar
-                      src={foundUser.avatar_url}
-                      alt={foundUser.full_name}
-                      size="lg"
-                      status={foundUser.is_online ? 'online' : 'offline'}
-                      showBorder={true}
-                    />
-                  </div>
+              <div className="rounded-lg border-2 border-[#00A884]/30 bg-[#00A884]/5 p-4">
+                <div className="flex items-center gap-3">
+                  <Avatar
+                    src={foundUser.avatar_url}
+                    alt={foundUser.full_name}
+                    size="lg"
+                    status={foundUser.is_online ? 'online' : 'offline'}
+                    showBorder={true}
+                  />
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-medium truncate text-sm sm:text-base">{foundUser.full_name}</h3>
-                    <p className="text-[11px] xs:text-xs sm:text-sm text-muted-foreground truncate">
+                    <h3 className="font-medium truncate">{foundUser.full_name}</h3>
+                    <p className="text-sm text-muted-foreground truncate">
                       @{foundUser.username}
                     </p>
                     {foundUser.status_message && (
-                      <p className="text-[10px] xs:text-[11px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1 line-clamp-1">
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
                         {foundUser.status_message}
                       </p>
                     )}
@@ -208,28 +202,21 @@ export function FindByPhoneDialog({
               </div>
 
               {/* Actions */}
-              <div className="flex flex-col xs:flex-row gap-2">
-                <Button
-                  onClick={handleAddUser}
-                  className="flex-1 h-11 sm:h-10 touch-manipulation order-1 text-sm sm:text-base"
-                >
-                  <UserPlus className="mr-1.5 sm:mr-2 h-4 w-4 flex-shrink-0" />
-                  <span className="truncate">Start Chat</span>
+              <div className="flex gap-2">
+                <Button onClick={handleAddUser} className="flex-1">
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Start Chat
                 </Button>
-                <Button
-                  onClick={handleReset}
-                  variant="outline"
-                  className="h-11 sm:h-10 touch-manipulation order-2 xs:w-auto text-sm sm:text-base"
-                >
-                  <span className="truncate">Search Again</span>
+                <Button onClick={handleReset} variant="outline">
+                  Search Again
                 </Button>
               </div>
             </div>
           )}
 
           {/* Info */}
-          <div className="rounded-lg border border-border bg-muted/30 p-2 xs:p-2.5 sm:p-3">
-            <p className="text-[10px] xs:text-[11px] sm:text-xs text-muted-foreground leading-relaxed">
+          <div className="rounded-lg bg-muted/50 p-3">
+            <p className="text-xs text-muted-foreground">
               💡 Search for users by their registered phone number
             </p>
           </div>

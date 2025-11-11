@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Plus, Settings, Phone, Users, LogOut } from 'lucide-react';
+import { Search, Plus, Settings, Phone, Users, LogOut } from '../ui/icons';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Avatar } from '../Avatar';
@@ -8,9 +8,11 @@ import { EmptyState } from '../EmptyState';
 import { ConversationSkeleton } from '../SkeletonLoader';
 import { StoryRing } from '../StoryRing';
 import { conversationsApi, storiesApi } from '../../utils/api';
-import { createClient } from '../../utils/supabase/client';
+import { createClient } from '../../utils/supabase/direct-api-client';
 import { notifyNewMessage } from '../../utils/notifications';
 import { toast } from '../../utils/toast';
+import { performanceCache } from '../../utils/performance-cache';
+import { usePrefetch } from '../../utils/hooks/usePrefetch';
 import type { Conversation, User as UserType, UserStories } from '../../utils/types';
 
 interface HomeScreenProps {
@@ -39,6 +41,7 @@ export function HomeScreen({
   const [stories, setStories] = useState<UserStories[]>([]);
   const [myStories, setMyStories] = useState<UserStories | null>(null);
   const [storiesLoading, setStoriesLoading] = useState(true);
+  const { prefetchConversation } = usePrefetch();
 
   useEffect(() => {
     loadConversations(true);
@@ -70,23 +73,33 @@ export function HomeScreen({
   }, []);
 
   const loadConversations = async (isInitial = false) => {
-    // Only show loading state on initial load, not during background polling
+    // 1. INSTANT: Load from cache first (0ms delay) on initial load
     if (isInitial) {
-      setInitialLoading(true);
-    }
-    
-    // Ensure we have a valid session before making API calls
-    if (isInitial) {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session?.access_token) {
-        console.error('[HomeScreen] No valid session, cannot load conversations');
+      const cached = await performanceCache.getAllConversations();
+      if (cached.fromCache && cached.conversations.length > 0) {
+        // Show cached data IMMEDIATELY
+        setConversations(cached.conversations);
         setInitialLoading(false);
-        return;
+        // Continue to background refresh below
+      } else {
+        // No cache, show loading
+        setInitialLoading(true);
       }
     }
     
+    // Ensure we have a valid session before making API calls
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session?.access_token) {
+      console.log('[HomeScreen] No valid session available');
+      if (isInitial) {
+        setInitialLoading(false);
+      }
+      return;
+    }
+    
+    // 2. BACKGROUND: Fetch fresh data from server
     let result;
     try {
       result = await conversationsApi.list();
@@ -98,8 +111,20 @@ export function HomeScreen({
       return;
     }
     
+    // Handle auth errors
+    if (result.requiresReauth) {
+      console.log('[HomeScreen] Authentication required - user may need to re-login');
+      if (isInitial) {
+        setInitialLoading(false);
+      }
+      return;
+    }
+    
     if (result.success && result.data?.conversations) {
       const newConversations = result.data.conversations;
+      
+      // Update cache for next time
+      await performanceCache.saveAllConversations(newConversations);
       
       // Check for new messages (only during background polling, not initial load)
       if (!isInitial && conversations.length > 0) {
@@ -367,6 +392,7 @@ export function HomeScreen({
                     key={conversation.id}
                     conversation={conversation}
                     onClick={() => onSelectConversation(conversation.id)}
+                    onHover={() => prefetchConversation(conversation.id)}
                     currentUserId={currentUser.id}
                   />
                 ))}
@@ -395,9 +421,9 @@ export function HomeScreen({
       <Button
         onClick={onNewChat}
         size="lg"
-        className="fixed bottom-5 right-5 rounded-full shadow-2xl shadow-primary/30 hover:shadow-primary/40 h-14 w-14 bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-all hover:scale-105 active:scale-95 touch-target z-20"
+        className="fixed right-5 rounded-full shadow-2xl shadow-primary/30 hover:shadow-primary/40 h-14 w-14 bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-all hover:scale-105 active:scale-95 touch-target z-[60]"
         style={{
-          bottom: 'max(env(safe-area-inset-bottom, 0px) + 1.25rem, 1.25rem)',
+          bottom: 'calc(max(env(safe-area-inset-bottom, 0px), 0px) + 80px)',
         }}
         aria-label="New conversation"
       >

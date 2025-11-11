@@ -3,6 +3,7 @@ import { cors } from 'npm:hono/cors';
 import { logger } from 'npm:hono/logger';
 import { createClient } from 'npm:@supabase/supabase-js';
 import * as kv from './kv_store.tsx';
+import { addFollowRoutes } from './follow-routes.tsx';
 
 const app = new Hono();
 
@@ -69,195 +70,187 @@ app.use('*', cors({
 }));
 app.use('*', logger(console.log));
 
-// Health check endpoint
-app.get('/make-server-29f6739b/health', async (c) => {
-  try {
-    // Test database connection
-    const testKey = `health_check:${Date.now()}`;
-    const testValue = { timestamp: new Date().toISOString() };
-    
-    // Try to write
-    const writeSuccess = await safeKvSet(testKey, testValue, 1);
-    if (!writeSuccess) {
-      return c.json({ 
-        status: 'unhealthy', 
-        error: 'Database write failed',
-        timestamp: new Date().toISOString()
-      }, 503);
-    }
-    
-    // Try to read
-    const readValue = await safeKvGet(testKey, null, 1);
-    if (!readValue) {
-      return c.json({ 
-        status: 'unhealthy', 
-        error: 'Database read failed',
-        timestamp: new Date().toISOString()
-      }, 503);
-    }
-    
-    // Clean up
-    try {
-      await kv.del(testKey);
-    } catch (e) {
-      // Ignore cleanup errors
-    }
-    
-    return c.json({ 
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      database: 'connected'
-    });
-  } catch (error) {
-    console.error('Health check failed:', error);
-    return c.json({ 
-      status: 'unhealthy',
-      error: error.message,
-      timestamp: new Date().toISOString()
-    }, 503);
-  }
-});
-
 // Create Supabase admin client
 const supabaseAdmin = createClient(
   Deno.env.get('SUPABASE_URL') ?? '',
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 );
 
+// Helper to validate UUID format
+function isValidUUID(uuid: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(uuid);
+}
+
 // Helper to verify user authentication
 async function verifyUser(authHeader: string | null) {
-  console.log('[verifyUser] ========== AUTH VERIFICATION START ==========');
-  
   if (!authHeader) {
-    console.error('[verifyUser] ❌ No auth header provided');
     return null;
   }
   
-  console.log('[verifyUser] Auth header preview:', authHeader.substring(0, 30) + '...');
-  console.log('[verifyUser] Auth header length:', authHeader.length);
-  
   const parts = authHeader.split(' ');
   if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    console.error('[verifyUser] ❌ Invalid auth header format');
-    console.error('[verifyUser] Parts:', parts.length, 'First part:', parts[0]);
     return null;
   }
   
   const token = parts[1];
-  console.log('[verifyUser] Token extracted, length:', token.length);
-  console.log('[verifyUser] Token preview:', token.substring(0, 30) + '...');
-  console.log('[verifyUser] Token ends with:', '...' + token.substring(token.length - 10));
   
   if (!token || token.length < 20) {
-    console.error('[verifyUser] ❌ Invalid or missing token');
     return null;
   }
   
   // Check if this is the anon key
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
   if (token === supabaseAnonKey) {
-    console.error('[verifyUser] ❌ CRITICAL: Received ANON KEY instead of user access token!');
-    console.error('[verifyUser] This means the frontend is not sending the user JWT.');
-    console.error('[verifyUser] The user session is likely not available.');
     return null;
   }
   
-  // Check if token looks like a JWT (should start with "eyJ")
+  // Check if token looks like a JWT
   if (!token.startsWith('eyJ')) {
-    console.error('[verifyUser] ❌ Invalid token format - does not start with "eyJ"');
-    console.error('[verifyUser] Token preview:', token.substring(0, 20) + '...');
-    console.error('[verifyUser] This is not a valid JWT token');
     return null;
   }
   
-  // Check token structure (JWTs have 3 parts separated by dots)
+  // Check token structure
   const tokenParts = token.split('.');
   if (tokenParts.length !== 3) {
-    console.error('[verifyUser] ❌ Invalid JWT structure - expected 3 parts, got:', tokenParts.length);
     return null;
   }
   
   try {
-    console.log('[verifyUser] Verifying JWT token with admin client...');
+    // Decode and validate the token manually
+    const payload = JSON.parse(atob(tokenParts[1].replace(/-/g, '+').replace(/_/g, '/')));
     
-    // FIXED: Use admin client to verify the JWT token
-    // The admin client has the SERVICE_ROLE_KEY which can verify any JWT
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+    // Check expiration
+    if (payload.exp) {
+      const now = Math.floor(Date.now() / 1000);
+      if (now >= payload.exp) {
+        return null;
+      }
+    }
     
-    if (error) {
-      console.error('[verifyUser] ❌ Auth verification error:', error.message);
-      console.error('[verifyUser] Error details:', {
-        name: error.name,
-        status: error.status,
-        message: error.message,
-      });
-      
-      // Additional debugging for specific errors
-      if (error.message.includes('missing sub claim')) {
-        console.error('[verifyUser] ⚠️  "missing sub claim" error means:');
-        console.error('[verifyUser]    - The token is NOT a user JWT');
-        console.error('[verifyUser]    - It might be the anon key');
-        console.error('[verifyUser]    - Or an invalid/malformed token');
-      }
-      
-      if (error.name === 'AuthSessionMissingError' || error.message.includes('Auth session missing')) {
-        console.error('[verifyUser] ⚠️  "Auth session missing" error means:');
-        console.error('[verifyUser]    - The token is invalid or expired');
-        console.error('[verifyUser]    - The token might be from a different Supabase project');
-        console.error('[verifyUser]    - The user needs to log in again');
-        console.error('[verifyUser] Token that failed (first 50 chars):', token.substring(0, 50) + '...');
-        console.error('[verifyUser] Token that failed (last 50 chars):', '...' + token.substring(token.length - 50));
-      }
-      
-      if (error.message.includes('JWT expired')) {
-        console.error('[verifyUser] ⚠️  JWT is expired - user needs to refresh their session');
-      }
-      
+    // Check issuer
+    const expectedIssuer = Deno.env.get('SUPABASE_URL') + '/auth/v1';
+    if (payload.iss !== expectedIssuer) {
       return null;
     }
     
-    if (!user) {
-      console.error('[verifyUser] ❌ No user found for token');
+    // Extract user ID from token
+    if (!payload.sub) {
       return null;
     }
     
-    console.log('[verifyUser] ✅ Successfully verified user:', user.id);
-    console.log('[verifyUser] User email:', user.email);
-    console.log('[verifyUser] ========== AUTH VERIFICATION END ==========');
+    // Verify the token signature by making a REST API call with it
+    const response = await fetch(`${Deno.env.get('SUPABASE_URL')}/auth/v1/user`, {
+      method: 'GET',
+      headers: {
+        'apikey': supabaseAnonKey,
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    
+    if (!response.ok) {
+      return null;
+    }
+    
+    const user = await response.json();
+    
+    if (!user || !user.id) {
+      return null;
+    }
+    
     return user;
+    
   } catch (err) {
-    console.error('[verifyUser] ❌ Unexpected error:', err);
-    if (err instanceof Error) {
-      console.error('[verifyUser] Error message:', err.message);
-      console.error('[verifyUser] Error stack:', err.stack);
-    }
+    console.error('[verifyUser] Error:', err instanceof Error ? err.message : String(err));
     return null;
   }
 }
 
-// Initialize storage buckets
-async function initializeStorage() {
-  const bucketsToCreate = [
-    'make-29f6739b-avatars',
-    'make-29f6739b-attachments'
-  ];
-  
-  const { data: buckets } = await supabaseAdmin.storage.listBuckets();
-  
-  for (const bucketName of bucketsToCreate) {
-    const bucketExists = buckets?.some(bucket => bucket.name === bucketName);
-    if (!bucketExists) {
-      await supabaseAdmin.storage.createBucket(bucketName, {
-        public: false,
-        fileSizeLimit: 52428800, // 50MB
-      });
-      console.log(`Created bucket: ${bucketName}`);
+// Helper to ensure bucket exists (creates if missing)
+async function ensureBucketExists(bucketName: string): Promise<boolean> {
+  try {
+    const { data: buckets, error: listError } = await supabaseAdmin.storage.listBuckets();
+    
+    if (listError) {
+      console.error(`Failed to list buckets:`, listError);
+      return false;
     }
+    
+    const bucketExists = buckets?.some(b => b.name === bucketName);
+    if (bucketExists) {
+      return true;
+    }
+    
+    console.log(`📦 Creating missing bucket: ${bucketName}...`);
+    const { error: createError } = await supabaseAdmin.storage.createBucket(bucketName, {
+      public: true,
+    });
+    
+    if (createError) {
+      console.error(`❌ Failed to create bucket ${bucketName}:`, createError);
+      return false;
+    }
+    
+    console.log(`✅ Created bucket: ${bucketName}`);
+    return true;
+  } catch (error) {
+    console.error(`Error ensuring bucket ${bucketName} exists:`, error);
+    return false;
   }
 }
 
-// Initialize on startup
-initializeStorage();
+// Initialize storage buckets (non-blocking)
+async function initializeStorage() {
+  try {
+    console.log('🗂️ Initializing storage buckets...');
+    
+    const bucketsToCreate = [
+      'make-29f6739b-avatars',
+      'make-29f6739b-attachments',
+      'make-29f6739b-posts'
+    ];
+    
+    const { data: buckets, error: listError } = await supabaseAdmin.storage.listBuckets();
+    
+    if (listError) {
+      console.error('❌ Failed to list buckets:', listError);
+      console.error('⚠️  Storage initialization failed, but server will continue running');
+      return; // Don't throw - allow server to start anyway
+    }
+    
+    for (const bucketName of bucketsToCreate) {
+      const bucketExists = buckets?.some(b => b.name === bucketName);
+      if (!bucketExists) {
+        console.log(`📦 Creating bucket: ${bucketName}...`);
+        const { data, error } = await supabaseAdmin.storage.createBucket(bucketName, {
+          public: true,
+        });
+        
+        if (error) {
+          console.error(`❌ Failed to create bucket ${bucketName}:`, error);
+          console.error(`⚠️  Bucket creation failed, but server will continue running`);
+          // Don't throw - continue with next bucket
+        } else {
+          console.log(`✅ Created bucket: ${bucketName}`);
+        }
+      } else {
+        console.log(`✓ Bucket already exists: ${bucketName}`);
+      }
+    }
+    
+    console.log('✅ Storage initialization complete');
+  } catch (error) {
+    console.error('❌ Storage initialization failed:', error);
+    console.error('⚠️  Server will continue running without storage initialization');
+    // Don't throw - allow server to start anyway
+  }
+}
+
+// Initialize on startup - don't block server if it fails
+initializeStorage().catch(err => {
+  console.error('Storage init error:', err);
+  console.log('Server will continue running...');
+});
 
 // ============================================================================
 // HEALTH CHECK & DIAGNOSTICS
@@ -441,28 +434,7 @@ app.post('/make-server-29f6739b/auth/signup', async (c) => {
 // ============================================================================
 // PROFILE ROUTES
 // ============================================================================
-
-// Get user profile
-app.get('/make-server-29f6739b/profile/:userId', async (c) => {
-  try {
-    const user = await verifyUser(c.req.header('Authorization'));
-    if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
-    
-    const userId = c.req.param('userId');
-    const profile = await kv.get(`user:${userId}`);
-    
-    if (!profile) {
-      return c.json({ error: 'User not found' }, 404);
-    }
-    
-    return c.json({ user: profile });
-  } catch (error) {
-    console.error('Get profile error:', error);
-    return c.json({ error: 'Server error getting profile' }, 500);
-  }
-});
+// Note: Main profile endpoint is defined in Instagram section below
 
 // Update user profile
 app.post('/make-server-29f6739b/profile/update', async (c) => {
@@ -919,16 +891,42 @@ app.post('/make-server-29f6739b/upload', async (c) => {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = new Uint8Array(arrayBuffer);
     
-    const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+    let uploadResult = await supabaseAdmin.storage
       .from(bucketName)
       .upload(fileName, buffer, {
         contentType: file.type,
         upsert: true,
       });
     
-    if (uploadError) {
-      console.error('Upload error:', uploadError);
-      return c.json({ error: uploadError.message }, 500);
+    if (uploadResult.error) {
+      console.error('Upload error:', uploadResult.error);
+      
+      // If bucket doesn't exist, try to create it and retry
+      if (uploadResult.error.message?.includes('Bucket not found') || uploadResult.error.statusCode === '404') {
+        const bucketCreated = await ensureBucketExists(bucketName);
+        
+        if (!bucketCreated) {
+          return c.json({ 
+            error: 'Storage bucket not available. Please contact support.',
+            details: uploadResult.error.message 
+          }, 500);
+        }
+        
+        // Retry the upload
+        uploadResult = await supabaseAdmin.storage
+          .from(bucketName)
+          .upload(fileName, buffer, {
+            contentType: file.type,
+            upsert: true,
+          });
+        
+        if (uploadResult.error) {
+          console.error('Retry upload error:', uploadResult.error);
+          return c.json({ error: uploadResult.error.message }, 500);
+        }
+      } else {
+        return c.json({ error: uploadResult.error.message }, 500);
+      }
     }
     
     // Create signed URL (valid for 1 year)
@@ -1015,27 +1013,6 @@ app.post('/make-server-29f6739b/profile/update', async (c) => {
   } catch (error) {
     console.error('Update profile error:', error);
     return c.json({ error: 'Server error updating profile' }, 500);
-  }
-});
-
-app.get('/make-server-29f6739b/profile/:userId', async (c) => {
-  try {
-    const user = await verifyUser(c.req.header('Authorization'));
-    if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
-    
-    const userId = c.req.param('userId');
-    const userProfile = await kv.get(`user:${userId}`);
-    
-    if (!userProfile) {
-      return c.json({ error: 'User not found' }, 404);
-    }
-    
-    return c.json({ user: userProfile });
-  } catch (error) {
-    console.error('Get profile error:', error);
-    return c.json({ error: 'Server error getting profile' }, 500);
   }
 });
 
@@ -1907,6 +1884,22 @@ app.get('/make-server-29f6739b/stories', async (c) => {
     // Auto-cleanup expired stories every time stories are fetched
     await cleanupExpiredStories();
 
+    // Get user's conversations to determine who they can see stories from
+    const userConversations = await kv.get(`user_conversations:${user.id}`) || [];
+    const contactUserIds = new Set<string>();
+    
+    // Collect all user IDs from conversations (these are the user's contacts)
+    for (const convId of userConversations) {
+      const members = await kv.getByPrefix(`conversation_member:${convId}:`);
+      for (const member of members) {
+        if (member.user_id !== user.id) {
+          contactUserIds.add(member.user_id);
+        }
+      }
+    }
+
+    console.log(`👥 User has ${contactUserIds.size} contacts from ${userConversations.length} conversations`);
+
     // Get all stories that haven't expired
     const allStories = await kv.getByPrefix('story:');
     const now = new Date();
@@ -1922,9 +1915,38 @@ app.get('/make-server-29f6739b/stories', async (c) => {
         continue;
       }
 
+      // PRIVACY FIX: Only show stories from users you have conversations with
+      // (not from your own user ID)
+      if (story.user_id === user.id) {
+        continue; // Skip own stories (they appear in "my stories")
+      }
+      
+      if (!contactUserIds.has(story.user_id)) {
+        continue; // Skip stories from non-contacts
+      }
+
       // Get story owner's profile
       const owner = await kv.get(`user:${story.user_id}`);
-      if (!owner) continue;
+      
+      // DATA CLEANUP FIX: Skip if user no longer exists in database
+      if (!owner) {
+        console.log(`⚠️  Skipping story from deleted user: ${story.user_id}`);
+        continue;
+      }
+
+      // Verify user still exists in Supabase Auth
+      try {
+        const { data: authUser, error } = await supabaseAdmin.auth.admin.getUserById(story.user_id);
+        if (error || !authUser) {
+          console.log(`⚠️  User ${story.user_id} not found in Auth, skipping their stories`);
+          // Optionally: Clean up this orphaned story
+          await kv.del(`story:${story.user_id}:${story.id}`);
+          continue;
+        }
+      } catch (err) {
+        console.log(`⚠️  Error checking auth for user ${story.user_id}, skipping`);
+        continue;
+      }
 
       // Get views for this story
       const views = await kv.getByPrefix(`story_view:${story.id}:`);
@@ -2142,6 +2164,13 @@ app.post('/make-server-29f6739b/stories/cleanup', async (c) => {
   }
 });
 
+// ============================================================================
+// FOLLOW SYSTEM ROUTES
+// ============================================================================
+
+// Initialize follow routes (follow, unfollow, followers list, following list)
+addFollowRoutes(app, verifyUser);
+
 // Get story views
 app.get('/make-server-29f6739b/stories/:storyId/views', async (c) => {
   try {
@@ -2334,4 +2363,1504 @@ app.post('/make-server-29f6739b/stories/delete', async (c) => {
   }
 });
 
+// ============================================================================
+// ACCOUNT DELETION ROUTE
+// ============================================================================
+
+// Delete user account and all associated data
+app.post('/make-server-29f6739b/account/delete', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const userId = user.id;
+    console.log(`🗑️ Starting account deletion for user: ${userId}`);
+
+    // 1. Delete user profile
+    console.log('  Deleting user profile...');
+    await kv.del(`user:${userId}`);
+
+    // 2. Delete presence
+    console.log('  Deleting presence...');
+    await kv.del(`presence:${userId}`);
+
+    // 3. Delete all user's stories
+    console.log('  Deleting stories...');
+    const userStories = await kv.getByPrefix(`story:${userId}:`);
+    for (const story of userStories) {
+      await kv.del(`story:${userId}:${story.id}`);
+      
+      // Delete all views for this story
+      const views = await kv.getByPrefix(`story_view:${story.id}:`);
+      for (const view of views) {
+        await kv.del(`story_view:${story.id}:${view.user_id}`);
+      }
+    }
+
+    // 4. Delete story views by this user
+    console.log('  Deleting story views...');
+    const allStoryViews = await kv.getByPrefix('story_view:');
+    for (const view of allStoryViews) {
+      if (view.user_id === userId) {
+        await kv.del(`story_view:${view.story_id}:${userId}`);
+      }
+    }
+
+    // 5. Get user's conversations
+    console.log('  Processing conversations...');
+    const userConversations = await kv.get(`user_conversations:${userId}`) || [];
+    
+    for (const convId of userConversations) {
+      // Delete user's conversation membership
+      await kv.del(`conversation_member:${convId}:${userId}`);
+      
+      // Delete message statuses created by this user
+      const allMessageStatuses = await kv.getByPrefix(`message_status:`);
+      for (const status of allMessageStatuses) {
+        if (status.user_id === userId) {
+          await kv.del(`message_status:${status.message_id}:${userId}`);
+        }
+      }
+      
+      // Delete messages sent by this user
+      const messages = await kv.getByPrefix(`message:${convId}:`);
+      for (const message of messages) {
+        if (message.sender_id === userId) {
+          await kv.del(`message:${convId}:${message.id}`);
+          
+          // Delete all statuses for this message
+          const statuses = await kv.getByPrefix(`message_status:${message.id}:`);
+          for (const status of statuses) {
+            await kv.del(`message_status:${message.id}:${status.user_id}`);
+          }
+          
+          // Delete all reactions to this message
+          const reactions = await kv.getByPrefix(`reaction:${message.id}:`);
+          for (const reaction of reactions) {
+            await kv.del(`reaction:${message.id}:${reaction.user_id}`);
+          }
+        }
+      }
+      
+      // Delete reactions by this user
+      const allReactions = await kv.getByPrefix('reaction:');
+      for (const reaction of allReactions) {
+        if (reaction.user_id === userId) {
+          await kv.del(`reaction:${reaction.message_id}:${userId}`);
+        }
+      }
+      
+      // Check if conversation has other members
+      const remainingMembers = await kv.getByPrefix(`conversation_member:${convId}:`);
+      
+      if (remainingMembers.length === 0) {
+        // No members left, delete the entire conversation
+        console.log(`  Deleting empty conversation: ${convId}`);
+        await kv.del(`conversation:${convId}`);
+        
+        // Delete all messages in this conversation
+        const convMessages = await kv.getByPrefix(`message:${convId}:`);
+        for (const msg of convMessages) {
+          await kv.del(`message:${convId}:${msg.id}`);
+        }
+      }
+    }
+
+    // 6. Delete user's conversation list
+    console.log('  Deleting conversation list...');
+    await kv.del(`user_conversations:${userId}`);
+
+    // 7. Delete typing indicators
+    console.log('  Deleting typing indicators...');
+    const typingIndicators = await kv.getByPrefix('typing:');
+    for (const typing of typingIndicators) {
+      if (typing.user_id === userId) {
+        await kv.del(`typing:${typing.conversation_id}:${userId}`);
+      }
+    }
+
+    // 8. Delete from Supabase Auth
+    console.log('  Deleting from Supabase Auth...');
+    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+    
+    if (authError) {
+      console.error('  Error deleting from Auth:', authError);
+      // Continue anyway - KV data is already deleted
+    } else {
+      console.log('  ✅ Deleted from Supabase Auth');
+    }
+
+    console.log(`✅ Account deletion complete for user: ${userId}`);
+
+    return c.json({ 
+      success: true,
+      message: 'Account deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete account error:', error);
+    return c.json({ error: 'Server error deleting account' }, 500);
+  }
+});
+
+// ============================================================================
+// INSTAGRAM-STYLE FEED & POSTS
+// ============================================================================
+
+// Get feed of followed users' posts
+app.get('/make-server-29f6739b/feed', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    // Get list of users current user follows
+    const following = await safeKvGet(`following:${user.id}`, []);
+    
+    // Get all posts from followed users + own posts
+    const posts = [];
+    const userIds = [...following, user.id]; // Include own posts
+    
+    for (const userId of userIds) {
+      const userPosts = await safeKvGetByPrefix(`post:${userId}:`);
+      posts.push(...userPosts);
+    }
+    
+    // Sort by created_at desc
+    posts.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    
+    // Add user data and like/save status
+    for (const post of posts) {
+      const postUser = await safeKvGet(`user:${post.user_id}`);
+      post.user = postUser;
+      post.is_liked = !!(await safeKvGet(`like:${post.id}:${user.id}`));
+      post.is_saved = !!(await safeKvGet(`save:${post.id}:${user.id}`));
+    }
+    
+    return c.json({ posts });
+  } catch (error) {
+    console.error('Get feed error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Get all posts for explore (public feed)
+app.get('/make-server-29f6739b/feed/explore', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    // Get all posts from all users
+    const posts = await safeKvGetByPrefix('post:');
+    
+    // Sort by created_at desc
+    posts.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    
+    // Add user data and like/save status
+    for (const post of posts) {
+      const postUser = await safeKvGet(`user:${post.user_id}`);
+      post.user = postUser;
+      post.is_liked = !!(await safeKvGet(`like:${post.id}:${user.id}`));
+      post.is_saved = !!(await safeKvGet(`save:${post.id}:${user.id}`));
+    }
+    
+    return c.json({ posts });
+  } catch (error) {
+    console.error('Get explore error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Get user's posts
+app.get('/make-server-29f6739b/feed/user/:userId', async (c) => {
+  try {
+    const userId = c.req.param('userId');
+    const currentUser = await verifyUser(c.req.header('Authorization'));
+    if (!currentUser) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const posts = await safeKvGetByPrefix(`post:${userId}:`);
+    
+    // Sort by created_at desc
+    posts.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    
+    // Add user data and like/save status
+    const user = await safeKvGet(`user:${userId}`);
+    for (const post of posts) {
+      post.user = user;
+      post.is_liked = !!(await safeKvGet(`like:${post.id}:${currentUser.id}`));
+      post.is_saved = !!(await safeKvGet(`save:${post.id}:${currentUser.id}`));
+    }
+    
+    return c.json({ posts });
+  } catch (error) {
+    console.error('Get user posts error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Get single post with comments
+app.get('/make-server-29f6739b/feed/post/:postId', async (c) => {
+  try {
+    const postId = c.req.param('postId');
+    const currentUser = await verifyUser(c.req.header('Authorization'));
+    if (!currentUser) return c.json({ error: 'Unauthorized' }, 401);
+    
+    // Find post
+    const allPosts = await safeKvGetByPrefix('post:');
+    const post = allPosts.find((p: any) => p.id === postId);
+    
+    if (!post) return c.json({ error: 'Post not found' }, 404);
+    
+    // Add user data
+    const user = await safeKvGet(`user:${post.user_id}`);
+    post.user = user;
+    post.is_liked = !!(await safeKvGet(`like:${post.id}:${currentUser.id}`));
+    post.is_saved = !!(await safeKvGet(`save:${post.id}:${currentUser.id}`));
+    
+    // Get comments
+    const comments = await safeKvGetByPrefix(`comment:${postId}:`);
+    
+    // Add user data to comments
+    for (const comment of comments) {
+      const commentUser = await safeKvGet(`user:${comment.user_id}`);
+      comment.user = commentUser;
+    }
+    
+    // Sort comments by created_at asc (oldest first)
+    comments.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    
+    return c.json({ post, comments });
+  } catch (error) {
+    console.error('Get post error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Get comments for a post
+app.get('/make-server-29f6739b/feed/post/:postId/comments', async (c) => {
+  try {
+    const postId = c.req.param('postId');
+    const currentUser = await verifyUser(c.req.header('Authorization'));
+    if (!currentUser) return c.json({ error: 'Unauthorized' }, 401);
+    
+    // Get comments
+    const comments = await safeKvGetByPrefix(`comment:${postId}:`);
+    
+    // Add user data to comments
+    for (const comment of comments) {
+      const commentUser = await safeKvGet(`user:${comment.user_id}`);
+      comment.user = commentUser;
+    }
+    
+    // Sort comments by created_at asc (oldest first)
+    comments.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    
+    return c.json({ comments });
+  } catch (error) {
+    console.error('Get comments error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Create post
+app.post('/make-server-29f6739b/feed/create', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    // Parse multipart form data
+    const formData = await c.req.formData();
+    const file = formData.get('file') as File;
+    const type = formData.get('type') as string;
+    const caption = formData.get('caption') as string;
+    const location = formData.get('location') as string;
+    
+    if (!file || !type) {
+      return c.json({ error: 'File and type are required' }, 400);
+    }
+    
+    if (type !== 'photo' && type !== 'reel') {
+      return c.json({ error: 'Type must be photo or reel' }, 400);
+    }
+    
+    console.log(`📸 User ${user.id} creating ${type} post, file: ${file.name}, size: ${file.size}`);
+    
+    // Upload file to Supabase Storage
+    const bucketName = 'make-29f6739b-posts';
+    const fileName = `${user.id}/${Date.now()}_${file.name}`;
+    const fileBuffer = await file.arrayBuffer();
+    
+    let uploadResult = await supabaseAdmin.storage
+      .from(bucketName)
+      .upload(fileName, fileBuffer, {
+        contentType: file.type,
+        upsert: false,
+      });
+    
+    if (uploadResult.error) {
+      console.error('Upload error:', uploadResult.error);
+      
+      // If bucket doesn't exist, try to create it and retry
+      if (uploadResult.error.message?.includes('Bucket not found') || uploadResult.error.statusCode === '404') {
+        const bucketCreated = await ensureBucketExists(bucketName);
+        
+        if (!bucketCreated) {
+          return c.json({ 
+            error: 'Storage bucket not available. Please contact support.',
+            details: uploadResult.error.message 
+          }, 500);
+        }
+        
+        // Retry the upload
+        uploadResult = await supabaseAdmin.storage
+          .from(bucketName)
+          .upload(fileName, fileBuffer, {
+            contentType: file.type,
+            upsert: false,
+          });
+        
+        if (uploadResult.error) {
+          console.error('Retry upload error:', uploadResult.error);
+          return c.json({ error: uploadResult.error.message }, 500);
+        }
+      } else {
+        return c.json({ error: uploadResult.error.message }, 500);
+      }
+    }
+    
+    // Get public URL
+    const { data: { publicUrl } } = supabaseAdmin.storage
+      .from(bucketName)
+      .getPublicUrl(fileName);
+    
+    console.log(`✅ File uploaded to: ${publicUrl}`);
+    
+    // Create post
+    const postId = `post_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const post = {
+      id: postId,
+      user_id: user.id,
+      type,
+      media_url: publicUrl,
+      caption: caption || '',
+      location: location || '',
+      created_at: new Date().toISOString(),
+      likes_count: 0,
+      comments_count: 0,
+    };
+    
+    await safeKvSet(`post:${user.id}:${postId}`, post);
+    
+    // Increment user's posts_count
+    const userProfile = await safeKvGet(`user:${user.id}`);
+    if (userProfile) {
+      userProfile.posts_count = (userProfile.posts_count || 0) + 1;
+      await safeKvSet(`user:${user.id}`, userProfile);
+      console.log(`📊 User ${user.id} posts_count updated to: ${userProfile.posts_count}`);
+    }
+    
+    console.log(`✅ Post created successfully: ${postId}`);
+    
+    return c.json({ 
+      post: {
+        ...post,
+        user: userProfile,
+        is_liked: false,
+        is_saved: false,
+      }
+    });
+  } catch (error) {
+    console.error('Create post error:', error);
+    return c.json({ error: 'Server error creating post', details: error instanceof Error ? error.message : String(error) }, 500);
+  }
+});
+
+// Delete post
+app.delete('/make-server-29f6739b/feed/post/:postId', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const postId = c.req.param('postId');
+    
+    // Find post
+    const allPosts = await safeKvGetByPrefix('post:');
+    const post = allPosts.find((p: any) => p.id === postId);
+    
+    if (!post) return c.json({ error: 'Post not found' }, 404);
+    
+    // Check ownership
+    if (post.user_id !== user.id) {
+      return c.json({ error: 'Unauthorized to delete this post' }, 403);
+    }
+    
+    // Delete post
+    await kv.del(`post:${post.user_id}:${postId}`);
+    
+    // Decrement user's posts_count
+    const userProfile = await safeKvGet(`user:${post.user_id}`);
+    if (userProfile) {
+      userProfile.posts_count = Math.max(0, (userProfile.posts_count || 0) - 1);
+      await safeKvSet(`user:${post.user_id}`, userProfile);
+      console.log(`📊 User ${post.user_id} posts_count updated to: ${userProfile.posts_count}`);
+    }
+    
+    // Delete all likes for this post
+    const likes = await safeKvGetByPrefix(`like:${postId}:`);
+    for (const like of likes) {
+      await kv.del(`like:${postId}:${like.user_id}`);
+    }
+    
+    // Delete all comments for this post
+    const comments = await safeKvGetByPrefix(`comment:${postId}:`);
+    for (const comment of comments) {
+      await kv.del(`comment:${postId}:${comment.id}`);
+    }
+    
+    // Delete all saves for this post
+    const saves = await safeKvGetByPrefix(`save:${postId}:`);
+    for (const save of saves) {
+      await kv.del(`save:${postId}:${save.user_id}`);
+    }
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Delete post error:', error);
+    return c.json({ error: 'Server error deleting post' }, 500);
+  }
+});
+
+// Like post
+app.post('/make-server-29f6739b/feed/like', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const { post_id } = await c.req.json();
+    
+    // Find post
+    const allPosts = await safeKvGetByPrefix('post:');
+    const post = allPosts.find((p: any) => p.id === post_id);
+    
+    if (!post) return c.json({ error: 'Post not found' }, 404);
+    
+    // Check if already liked
+    const existingLike = await safeKvGet(`like:${post_id}:${user.id}`);
+    if (existingLike) {
+      return c.json({ error: 'Already liked' }, 400);
+    }
+    
+    // Create like
+    await safeKvSet(`like:${post_id}:${user.id}`, {
+      post_id,
+      user_id: user.id,
+      created_at: new Date().toISOString(),
+    });
+    
+    // Increment count
+    post.likes_count = (post.likes_count || 0) + 1;
+    await safeKvSet(`post:${post.user_id}:${post.id}`, post);
+    
+    // Create notification for post owner
+    await createNotification(post.user_id, 'like', user.id, post_id);
+    
+    return c.json({ success: true, likes_count: post.likes_count });
+  } catch (error) {
+    console.error('Like post error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Unlike post
+app.post('/make-server-29f6739b/feed/unlike', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const { post_id } = await c.req.json();
+    
+    // Find post
+    const allPosts = await safeKvGetByPrefix('post:');
+    const post = allPosts.find((p: any) => p.id === post_id);
+    
+    if (!post) return c.json({ error: 'Post not found' }, 404);
+    
+    // Delete like
+    await kv.del(`like:${post_id}:${user.id}`);
+    
+    // Decrement count
+    post.likes_count = Math.max(0, (post.likes_count || 0) - 1);
+    await safeKvSet(`post:${post.user_id}:${post.id}`, post);
+    
+    return c.json({ success: true, likes_count: post.likes_count });
+  } catch (error) {
+    console.error('Unlike post error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Save post
+app.post('/make-server-29f6739b/feed/save', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const { post_id } = await c.req.json();
+    
+    // Check if already saved
+    const existingSave = await safeKvGet(`save:${post_id}:${user.id}`);
+    if (existingSave) {
+      return c.json({ error: 'Already saved' }, 400);
+    }
+    
+    // Create save
+    await safeKvSet(`save:${post_id}:${user.id}`, {
+      post_id,
+      user_id: user.id,
+      created_at: new Date().toISOString(),
+    });
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Save post error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Unsave post
+app.post('/make-server-29f6739b/feed/unsave', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const { post_id } = await c.req.json();
+    
+    // Delete save
+    await kv.del(`save:${post_id}:${user.id}`);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Unsave post error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Add comment
+app.post('/make-server-29f6739b/feed/comment', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const { post_id, text } = await c.req.json();
+    
+    if (!text || text.trim() === '') {
+      return c.json({ error: 'Comment text is required' }, 400);
+    }
+    
+    // Find post
+    const allPosts = await safeKvGetByPrefix('post:');
+    const post = allPosts.find((p: any) => p.id === post_id);
+    
+    if (!post) return c.json({ error: 'Post not found' }, 404);
+    
+    // Create comment
+    const commentId = `comment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const comment = {
+      id: commentId,
+      post_id,
+      user_id: user.id,
+      text,
+      created_at: new Date().toISOString(),
+    };
+    
+    await safeKvSet(`comment:${post_id}:${commentId}`, comment);
+    
+    // Increment count
+    post.comments_count = (post.comments_count || 0) + 1;
+    await safeKvSet(`post:${post.user_id}:${post.id}`, post);
+    
+    // Create notification for post owner
+    await createNotification(post.user_id, 'comment', user.id, post_id, commentId);
+    
+    // Add user data to response
+    const userProfile = await safeKvGet(`user:${user.id}`);
+    
+    return c.json({ 
+      comment: {
+        ...comment,
+        user: userProfile,
+      },
+      comments_count: post.comments_count
+    });
+  } catch (error) {
+    console.error('Add comment error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Delete comment
+app.delete('/make-server-29f6739b/feed/comment/:commentId', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const commentId = c.req.param('commentId');
+    
+    // Find comment
+    const allComments = await safeKvGetByPrefix('comment:');
+    const comment = allComments.find((cm: any) => cm.id === commentId);
+    
+    if (!comment) return c.json({ error: 'Comment not found' }, 404);
+    
+    // Check ownership
+    if (comment.user_id !== user.id) {
+      return c.json({ error: 'Unauthorized to delete this comment' }, 403);
+    }
+    
+    // Delete comment
+    await kv.del(`comment:${comment.post_id}:${commentId}`);
+    
+    // Decrement post's comment count
+    const allPosts = await safeKvGetByPrefix('post:');
+    const post = allPosts.find((p: any) => p.id === comment.post_id);
+    
+    if (post) {
+      post.comments_count = Math.max(0, (post.comments_count || 0) - 1);
+      await safeKvSet(`post:${post.user_id}:${post.id}`, post);
+    }
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Delete comment error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// ============================================================================
+// FOLLOW SYSTEM
+// ============================================================================
+
+// Follow user
+app.post('/make-server-29f6739b/follow', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const { user_id } = await c.req.json();
+    
+    if (user_id === user.id) {
+      return c.json({ error: 'Cannot follow yourself' }, 400);
+    }
+    
+    // Check if target user exists
+    const targetUser = await safeKvGet(`user:${user_id}`);
+    if (!targetUser) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    // Add to following list
+    const following = await safeKvGet(`following:${user.id}`, []);
+    if (!following.includes(user_id)) {
+      following.push(user_id);
+      await safeKvSet(`following:${user.id}`, following);
+    }
+    
+    // Add to followers list
+    const followers = await safeKvGet(`followers:${user_id}`, []);
+    if (!followers.includes(user.id)) {
+      followers.push(user.id);
+      await safeKvSet(`followers:${user_id}`, followers);
+    }
+    
+    // Create notification for followed user
+    await createNotification(user_id, 'follow', user.id);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Follow user error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Unfollow user
+app.post('/make-server-29f6739b/unfollow', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const { user_id } = await c.req.json();
+    
+    // Remove from following list
+    const following = await safeKvGet(`following:${user.id}`, []);
+    const index = following.indexOf(user_id);
+    if (index > -1) {
+      following.splice(index, 1);
+      await safeKvSet(`following:${user.id}`, following);
+    }
+    
+    // Remove from followers list
+    const followers = await safeKvGet(`followers:${user_id}`, []);
+    const followerIndex = followers.indexOf(user.id);
+    if (followerIndex > -1) {
+      followers.splice(followerIndex, 1);
+      await safeKvSet(`followers:${user_id}`, followers);
+    }
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Unfollow user error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Get user profile with stats (legacy route)
+app.get('/make-server-29f6739b/profile/:userId', async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('Authorization'));
+    if (!currentUser) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const userId = c.req.param('userId');
+    
+    console.log(`🔍 [LEGACY PROFILE] Loading profile for user: ${userId}`);
+    
+    // Get user profile
+    let user = await safeKvGet(`user:${userId}`);
+    
+    // If user doesn't exist in KV store, create it from auth user data
+    if (!user) {
+      console.log(`⚠️  User profile not found for ${userId}, creating from auth data...`);
+      
+      // Validate UUID before calling getUserById
+      if (!isValidUUID(userId)) {
+        console.error(`❌ Invalid UUID format: ${userId}`);
+        return c.json({ error: 'Invalid user ID format' }, 400);
+      }
+      
+      try {
+        // Get auth user data
+        const { data: { user: authUser }, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+        
+        if (error || !authUser) {
+          console.error(`❌ Could not find auth user ${userId}:`, error);
+          return c.json({ error: 'User not found' }, 404);
+        }
+        
+        // Create initial profile
+        user = {
+          id: authUser.id,
+          email: authUser.email,
+          full_name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User',
+          username: authUser.user_metadata?.username || authUser.email?.split('@')[0] || `user${Date.now()}`,
+          phone_number: authUser.phone || authUser.user_metadata?.phone_number || '',
+          avatar_url: authUser.user_metadata?.avatar_url || null,
+          bio: authUser.user_metadata?.bio || '',
+          posts_count: 0,
+          followers_count: 0,
+          following_count: 0,
+          created_at: authUser.created_at,
+          updated_at: new Date().toISOString(),
+        };
+        
+        await safeKvSet(`user:${userId}`, user);
+        console.log(`✅ Created initial profile for user ${userId}`);
+      } catch (err) {
+        console.error(`❌ Error creating profile for ${userId}:`, err);
+        return c.json({ error: 'User not found' }, 404);
+      }
+    }
+    
+    console.log(`📦 User object BEFORE recalc:`, {
+      posts_count: user.posts_count,
+      followers_count: user.followers_count,
+      following_count: user.following_count,
+    });
+    
+    // Get stats - ALWAYS recalculate
+    const posts = await safeKvGetByPrefix(`post:${userId}:`);
+    console.log(`📊 Found ${posts.length} posts with prefix: post:${userId}:`);
+    if (posts.length > 0) {
+      console.log(`   Sample post IDs:`, posts.slice(0, 3).map((p: any) => p.id));
+    }
+    
+    const followers = await safeKvGet(`followers:${userId}`, []);
+    console.log(`📊 Found ${followers.length} followers in array: followers:${userId}`);
+    if (followers.length > 0) {
+      console.log(`   Follower user IDs:`, followers);
+    }
+    
+    const following = await safeKvGet(`following:${userId}`, []);
+    console.log(`📊 Found ${following.length} following in array: following:${userId}`);
+    if (following.length > 0) {
+      console.log(`   Following user IDs:`, following);
+    }
+    
+    // Update user profile with actual counts
+    user.posts_count = posts.length;
+    user.followers_count = followers.length;
+    user.following_count = following.length;
+    
+    await safeKvSet(`user:${userId}`, user);
+    console.log(`💾 Updated user profile with counts:`, {
+      posts_count: user.posts_count,
+      followers_count: user.followers_count,
+      following_count: user.following_count,
+    });
+    
+    // Check follow status
+    const currentUserFollowing = await safeKvGet(`following:${currentUser.id}`, []);
+    const currentUserFollowers = await safeKvGet(`followers:${currentUser.id}`, []);
+    
+    const profile = {
+      ...user,
+      posts_count: posts.length,
+      followers_count: followers.length,
+      following_count: following.length,
+      is_following: currentUserFollowing.includes(userId),
+      is_followed_by: currentUserFollowers.includes(userId),
+    };
+    
+    console.log(`✅ Returning profile with counts:`, {
+      posts_count: profile.posts_count,
+      followers_count: profile.followers_count,
+      following_count: profile.following_count,
+    });
+    
+    return c.json({ user: profile });
+  } catch (error) {
+    console.error('Get profile error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Get user profile with stats (feed route)
+app.get('/make-server-29f6739b/feed/profile/:userId', async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('Authorization'));
+    if (!currentUser) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const userId = c.req.param('userId');
+    
+    console.log(`🔍 [FEED PROFILE] Loading profile for user: ${userId}`);
+    
+    // Get user profile
+    let user = await safeKvGet(`user:${userId}`);
+    
+    // If user doesn't exist in KV store, create it from auth user data
+    if (!user) {
+      console.log(`⚠️  User profile not found for ${userId}, creating from auth data...`);
+      
+      // Validate UUID before calling getUserById
+      if (!isValidUUID(userId)) {
+        console.error(`❌ Invalid UUID format: ${userId}`);
+        return c.json({ error: 'Invalid user ID format' }, 400);
+      }
+      
+      try {
+        // Get auth user data
+        const { data: { user: authUser }, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+        
+        if (error || !authUser) {
+          console.error(`❌ Could not find auth user ${userId}:`, error);
+          return c.json({ error: 'User not found' }, 404);
+        }
+        
+        // Create initial profile
+        user = {
+          id: authUser.id,
+          email: authUser.email,
+          full_name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User',
+          username: authUser.user_metadata?.username || authUser.email?.split('@')[0] || `user${Date.now()}`,
+          phone_number: authUser.phone || authUser.user_metadata?.phone_number || '',
+          avatar_url: authUser.user_metadata?.avatar_url || null,
+          bio: authUser.user_metadata?.bio || '',
+          posts_count: 0,
+          followers_count: 0,
+          following_count: 0,
+          created_at: authUser.created_at,
+          updated_at: new Date().toISOString(),
+        };
+        
+        await safeKvSet(`user:${userId}`, user);
+        console.log(`✅ Created initial profile for user ${userId}`);
+      } catch (err) {
+        console.error(`❌ Error creating profile for ${userId}:`, err);
+        return c.json({ error: 'User not found' }, 404);
+      }
+    }
+    
+    console.log(`📦 User object BEFORE recalc:`, {
+      id: user.id,
+      username: user.username,
+      posts_count: user.posts_count,
+      followers_count: user.followers_count,
+      following_count: user.following_count,
+    });
+    
+    // ALWAYS recalculate counts from actual data (not just when 0)
+    console.log(`🔧 Calculating counts for user ${userId}...`);
+    
+    // Count actual posts
+    const allPosts = await safeKvGetByPrefix(`post:${userId}:`);
+    console.log(`📊 Found ${allPosts.length} posts with prefix: post:${userId}:`);
+    if (allPosts.length > 0) {
+      console.log(`   Sample post IDs:`, allPosts.slice(0, 3).map((p: any) => p.id));
+      console.log(`   Sample post types:`, allPosts.slice(0, 3).map((p: any) => p.type));
+    }
+    
+    // Count actual followers using followers:userId array
+    const followersArray = await safeKvGet(`followers:${userId}`, []);
+    console.log(`📊 Found ${followersArray.length} followers in array: followers:${userId}`);
+    if (followersArray.length > 0) {
+      console.log(`   Follower user IDs:`, followersArray);
+    }
+    
+    // Count actual following using following:userId array
+    const followingArray = await safeKvGet(`following:${userId}`, []);
+    console.log(`📊 Found ${followingArray.length} following in array: following:${userId}`);
+    if (followingArray.length > 0) {
+      console.log(`   Following user IDs:`, followingArray);
+    }
+    
+    // Update user profile with correct counts
+    user.posts_count = allPosts.length;
+    user.followers_count = followersArray.length;
+    user.following_count = followingArray.length;
+    
+    await safeKvSet(`user:${userId}`, user);
+    
+    console.log(`💾 Updated user profile with counts:`, {
+      posts_count: user.posts_count,
+      followers_count: user.followers_count,
+      following_count: user.following_count,
+    });
+    
+    // Check if current user follows this user
+    const currentUserFollowing = await safeKvGet(`following:${currentUser.id}`, []);
+    const currentUserFollowers = await safeKvGet(`followers:${currentUser.id}`, []);
+    
+    const profile = {
+      ...user,
+      posts_count: user.posts_count,
+      followers_count: user.followers_count,
+      following_count: user.following_count,
+      is_following: currentUserFollowing.includes(userId),
+      is_followed_by: currentUserFollowers.includes(userId),
+    };
+    
+    console.log(`✅ Returning profile with counts:`, {
+      posts_count: profile.posts_count,
+      followers_count: profile.followers_count,
+      following_count: profile.following_count,
+      is_following: profile.is_following,
+      is_followed_by: profile.is_followed_by,
+    });
+    
+    return c.json({ user: profile });
+  } catch (error) {
+    console.error('Get feed profile error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Diagnostic route - show what data exists for user
+app.get('/make-server-29f6739b/profile/diagnostic', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`🔍 DIAGNOSTIC SCAN FOR USER: ${user.id}`);
+    console.log(`   Username: ${user.username || 'N/A'}`);
+    console.log(`   Email: ${user.email || 'N/A'}`);
+    console.log(`${'='.repeat(80)}\n`);
+    
+    // Get user profile
+    let userProfile = await safeKvGet(`user:${user.id}`);
+    
+    // If profile doesn't exist, create it
+    if (!userProfile) {
+      console.log(`⚠️  Profile not found, creating initial profile...`);
+      const metadata = user.user_metadata || {};
+      const emailPrefix = user.email ? user.email.split('@')[0] : 'user';
+      
+      userProfile = {
+        id: user.id,
+        email: user.email || '',
+        full_name: metadata.full_name || emailPrefix,
+        username: metadata.username || emailPrefix || `user${Date.now()}`,
+        phone_number: user.phone || metadata.phone_number || '',
+        avatar_url: metadata.avatar_url || null,
+        bio: metadata.bio || '',
+        posts_count: 0,
+        followers_count: 0,
+        following_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      
+      const saved = await safeKvSet(`user:${user.id}`, userProfile);
+      if (saved) {
+        console.log(`✅ Created initial profile for user ${user.id}`);
+      } else {
+        console.error(`❌ Failed to save initial profile for user ${user.id}`);
+      }
+    }
+    console.log(`📦 User Profile Object:`);
+    console.log(JSON.stringify(userProfile, null, 2));
+    
+    // Get all posts with detailed info
+    console.log(`\n📊 Searching for posts with prefix: post:${user.id}:`);
+    const allPosts = await safeKvGetByPrefix(`post:${user.id}:`);
+    console.log(`   ✅ Found ${allPosts.length} posts`);
+    if (allPosts.length > 0) {
+      allPosts.forEach((post: any, idx: number) => {
+        console.log(`   Post ${idx + 1}:`, {
+          id: post.id,
+          type: post.type,
+          created_at: post.created_at,
+          likes: post.likes_count || 0,
+          comments: post.comments_count || 0,
+        });
+      });
+    }
+    
+    // Get followers array with detailed info
+    console.log(`\n📊 Searching for followers array: followers:${user.id}`);
+    const followersArray = await safeKvGet(`followers:${user.id}`, []);
+    console.log(`   ✅ Found ${followersArray.length} followers`);
+    if (followersArray.length > 0) {
+      console.log(`   Follower user IDs:`, followersArray);
+      // Get each follower's info
+      for (const followerId of followersArray) {
+        const followerUser = await safeKvGet(`user:${followerId}`);
+        console.log(`      - ${followerUser?.username || followerId} (${followerUser?.full_name || 'N/A'})`);
+      }
+    }
+    
+    // Get following array with detailed info
+    console.log(`\n📊 Searching for following array: following:${user.id}`);
+    const followingArray = await safeKvGet(`following:${user.id}`, []);
+    console.log(`   ✅ Found ${followingArray.length} following`);
+    if (followingArray.length > 0) {
+      console.log(`   Following user IDs:`, followingArray);
+      // Get each followed user's info
+      for (const followingId of followingArray) {
+        const followingUser = await safeKvGet(`user:${followingId}`);
+        console.log(`      - ${followingUser?.username || followingId} (${followingUser?.full_name || 'N/A'})`);
+      }
+    }
+    
+    // Get all follow: keys (new follow request system)
+    console.log(`\n📊 Searching for follow request keys: follow:`);
+    const allFollowKeys = await safeKvGetByPrefix('follow:');
+    const followKeysForUser = allFollowKeys.filter((f: any) => 
+      f.follower_id === user.id || f.following_id === user.id
+    );
+    console.log(`   ✅ Found ${followKeysForUser.length} follow request records`);
+    if (followKeysForUser.length > 0) {
+      followKeysForUser.forEach((fr: any, idx: number) => {
+        console.log(`   Follow Request ${idx + 1}:`, {
+          follower_id: fr.follower_id,
+          following_id: fr.following_id,
+          status: fr.status,
+          created_at: fr.created_at,
+        });
+      });
+    }
+    
+    const diagnostic = {
+      user_id: user.id,
+      username: user.username,
+      email: user.email,
+      user_profile: userProfile,
+      stored_counts: {
+        posts_count: userProfile?.posts_count || 0,
+        followers_count: userProfile?.followers_count || 0,
+        following_count: userProfile?.following_count || 0,
+      },
+      actual_data: {
+        posts: {
+          count: allPosts.length,
+          full_list: allPosts.map((p: any) => ({ 
+            id: p.id, 
+            type: p.type, 
+            created_at: p.created_at,
+            media_url: p.media_url,
+            caption: p.caption?.substring(0, 50) || '',
+          })),
+        },
+        followers: {
+          count: followersArray.length,
+          array: followersArray,
+        },
+        following: {
+          count: followingArray.length,
+          array: followingArray,
+        },
+        follow_requests: {
+          count: followKeysForUser.length,
+          list: followKeysForUser,
+        },
+      },
+      recommendations: [],
+    };
+    
+    // Add recommendations
+    console.log(`\n📋 ANALYSIS:`);
+    if (allPosts.length !== (userProfile?.posts_count || 0)) {
+      const msg = `Posts count mismatch! Stored: ${userProfile?.posts_count || 0}, Actual: ${allPosts.length}`;
+      console.log(`   ❌ ${msg}`);
+      diagnostic.recommendations.push(msg);
+    } else {
+      console.log(`   ✅ Posts count is correct: ${allPosts.length}`);
+    }
+    
+    if (followersArray.length !== (userProfile?.followers_count || 0)) {
+      const msg = `Followers count mismatch! Stored: ${userProfile?.followers_count || 0}, Actual: ${followersArray.length}`;
+      console.log(`   ❌ ${msg}`);
+      diagnostic.recommendations.push(msg);
+    } else {
+      console.log(`   ✅ Followers count is correct: ${followersArray.length}`);
+    }
+    
+    if (followingArray.length !== (userProfile?.following_count || 0)) {
+      const msg = `Following count mismatch! Stored: ${userProfile?.following_count || 0}, Actual: ${followingArray.length}`;
+      console.log(`   ❌ ${msg}`);
+      diagnostic.recommendations.push(msg);
+    } else {
+      console.log(`   ✅ Following count is correct: ${followingArray.length}`);
+    }
+    
+    if (diagnostic.recommendations.length === 0) {
+      diagnostic.recommendations.push('All counts are accurate! ✅');
+      console.log(`\n✅ All counts are accurate!`);
+    } else {
+      diagnostic.recommendations.push('⚠️ Use the repair endpoint to fix counts: POST /profile/repair-counts');
+      console.log(`\n⚠️  FIX NEEDED: Use the "Fix Profile Counts" button in Settings`);
+    }
+    
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`DIAGNOSTIC COMPLETE`);
+    console.log(`${'='.repeat(80)}\n`);
+    
+    return c.json({ diagnostic });
+  } catch (error) {
+    console.error('Diagnostic error:', error);
+    console.error('Error details:', error instanceof Error ? error.message : String(error));
+    console.error('Error stack:', error instanceof Error ? error.stack : 'N/A');
+    return c.json({ 
+      error: 'Server error running diagnostic',
+      details: error instanceof Error ? error.message : String(error)
+    }, 500);
+  }
+});
+
+// Repair user counts - recalculate from actual data
+app.post('/make-server-29f6739b/profile/repair-counts', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    console.log(`🔧 Manual count repair requested for user ${user.id}...`);
+    
+    // Get user profile
+    let userProfile = await safeKvGet(`user:${user.id}`);
+    
+    // If profile doesn't exist, create it
+    if (!userProfile) {
+      console.log(`⚠️  Profile not found, creating initial profile...`);
+      const metadata = user.user_metadata || {};
+      const emailPrefix = user.email ? user.email.split('@')[0] : 'user';
+      
+      userProfile = {
+        id: user.id,
+        email: user.email || '',
+        full_name: metadata.full_name || emailPrefix,
+        username: metadata.username || emailPrefix || `user${Date.now()}`,
+        phone_number: user.phone || metadata.phone_number || '',
+        avatar_url: metadata.avatar_url || null,
+        bio: metadata.bio || '',
+        posts_count: 0,
+        followers_count: 0,
+        following_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      
+      const saved = await safeKvSet(`user:${user.id}`, userProfile);
+      if (saved) {
+        console.log(`✅ Created initial profile for user ${user.id}`);
+      } else {
+        console.error(`❌ Failed to save initial profile for user ${user.id}`);
+      }
+    }
+    
+    // Count actual posts using the correct key pattern
+    const allPosts = await safeKvGetByPrefix(`post:${user.id}:`);
+    console.log(`📊 Found ${allPosts.length} posts for user ${user.id}`);
+    
+    // Count actual followers using the followers array
+    const followersArray = await safeKvGet(`followers:${user.id}`, []);
+    console.log(`📊 Found ${followersArray.length} followers for user ${user.id}`);
+    
+    // Count actual following using the following array
+    const followingArray = await safeKvGet(`following:${user.id}`, []);
+    console.log(`📊 Found ${followingArray.length} following for user ${user.id}`);
+    
+    // Update user profile with correct counts
+    const oldCounts = {
+      posts: userProfile.posts_count || 0,
+      followers: userProfile.followers_count || 0,
+      following: userProfile.following_count || 0,
+    };
+    
+    userProfile.posts_count = allPosts.length;
+    userProfile.followers_count = followersArray.length;
+    userProfile.following_count = followingArray.length;
+    
+    await safeKvSet(`user:${user.id}`, userProfile);
+    
+    console.log(`✅ Counts repaired for user ${user.id}:`);
+    console.log(`   Posts: ${oldCounts.posts} → ${userProfile.posts_count}`);
+    console.log(`   Followers: ${oldCounts.followers} → ${userProfile.followers_count}`);
+    console.log(`   Following: ${oldCounts.following} → ${userProfile.following_count}`);
+    
+    return c.json({ 
+      success: true,
+      old_counts: oldCounts,
+      new_counts: {
+        posts: userProfile.posts_count,
+        followers: userProfile.followers_count,
+        following: userProfile.following_count,
+      },
+      message: 'Counts repaired successfully'
+    });
+  } catch (error) {
+    console.error('Repair counts error:', error);
+    console.error('Error details:', error instanceof Error ? error.message : String(error));
+    console.error('Error stack:', error instanceof Error ? error.stack : 'N/A');
+    return c.json({ 
+      error: 'Server error repairing counts',
+      details: error instanceof Error ? error.message : String(error)
+    }, 500);
+  }
+});
+
+// Get followers list
+app.get('/make-server-29f6739b/followers/:userId', async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('Authorization'));
+    if (!currentUser) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const userId = c.req.param('userId');
+    const followerIds = await safeKvGet(`followers:${userId}`, []);
+    
+    // Get user data for each follower
+    const followers = [];
+    for (const followerId of followerIds) {
+      const followerUser = await safeKvGet(`user:${followerId}`);
+      if (followerUser) {
+        followers.push(followerUser);
+      }
+    }
+    
+    return c.json({ followers });
+  } catch (error) {
+    console.error('Get followers error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Get following list
+app.get('/make-server-29f6739b/following/:userId', async (c) => {
+  try {
+    const currentUser = await verifyUser(c.req.header('Authorization'));
+    if (!currentUser) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const userId = c.req.param('userId');
+    const followingIds = await safeKvGet(`following:${userId}`, []);
+    
+    // Get user data for each followed user
+    const following = [];
+    for (const followedId of followingIds) {
+      const followedUser = await safeKvGet(`user:${followedId}`);
+      if (followedUser) {
+        following.push(followedUser);
+      }
+    }
+    
+    return c.json({ following });
+  } catch (error) {
+    console.error('Get following error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// ============================================================================
+// REELS FEED
+// ============================================================================
+
+// Get reels-only feed
+app.get('/make-server-29f6739b/feed/reels', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    // Get all reels (type === 'reel')
+    const allPosts = await safeKvGetByPrefix('post:');
+    const reels = allPosts.filter((p: any) => p.type === 'reel');
+    
+    // Sort by created_at desc
+    reels.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    
+    // Add user data and like/save status
+    for (const reel of reels) {
+      const reelUser = await safeKvGet(`user:${reel.user_id}`);
+      reel.user = reelUser;
+      reel.is_liked = !!(await safeKvGet(`like:${reel.id}:${user.id}`));
+      reel.is_saved = !!(await safeKvGet(`save:${reel.id}:${user.id}`));
+      
+      // Get comments count
+      const comments = await safeKvGetByPrefix(`comment:${reel.id}:`);
+      reel.comments_count = comments.length;
+    }
+    
+    return c.json({ reels });
+  } catch (error) {
+    console.error('Get reels feed error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// ============================================================================
+// NOTIFICATIONS SYSTEM
+// ============================================================================
+
+// Get user notifications
+app.get('/make-server-29f6739b/notifications', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    // Get all notifications for this user
+    const notifications = await safeKvGetByPrefix(`notification:${user.id}:`);
+    
+    // Sort by created_at desc (newest first)
+    notifications.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    
+    // Add actor user data
+    for (const notif of notifications) {
+      if (notif.actor_id) {
+        const actorUser = await safeKvGet(`user:${notif.actor_id}`);
+        notif.actor = actorUser;
+      }
+      
+      // Add post data if post_id exists
+      if (notif.post_id) {
+        const allPosts = await safeKvGetByPrefix('post:');
+        const post = allPosts.find((p: any) => p.id === notif.post_id);
+        if (post) {
+          notif.post = post;
+        }
+      }
+    }
+    
+    return c.json({ notifications });
+  } catch (error) {
+    console.error('Get notifications error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Mark notification as read
+app.post('/make-server-29f6739b/notifications/:notificationId/read', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const notificationId = c.req.param('notificationId');
+    
+    // Find notification
+    const notifications = await safeKvGetByPrefix(`notification:${user.id}:`);
+    const notification = notifications.find((n: any) => n.id === notificationId);
+    
+    if (!notification) {
+      return c.json({ error: 'Notification not found' }, 404);
+    }
+    
+    // Check ownership
+    if (notification.user_id !== user.id) {
+      return c.json({ error: 'Unauthorized' }, 403);
+    }
+    
+    // Mark as read
+    notification.read = true;
+    notification.read_at = new Date().toISOString();
+    await safeKvSet(`notification:${user.id}:${notificationId}`, notification);
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Mark notification as read error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Mark all notifications as read
+app.post('/make-server-29f6739b/notifications/read-all', async (c) => {
+  try {
+    const user = await verifyUser(c.req.header('Authorization'));
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    
+    const notifications = await safeKvGetByPrefix(`notification:${user.id}:`);
+    
+    for (const notification of notifications) {
+      if (!notification.read) {
+        notification.read = true;
+        notification.read_at = new Date().toISOString();
+        await safeKvSet(`notification:${user.id}:${notification.id}`, notification);
+      }
+    }
+    
+    return c.json({ success: true, count: notifications.length });
+  } catch (error) {
+    console.error('Mark all notifications as read error:', error);
+    return c.json({ error: 'Server error' }, 500);
+  }
+});
+
+// Helper function to create notification
+async function createNotification(userId: string, type: string, actorId: string, postId?: string, commentId?: string) {
+  try {
+    // Don't notify yourself
+    if (userId === actorId) return;
+    
+    const notificationId = `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const notification = {
+      id: notificationId,
+      user_id: userId,
+      type, // 'like', 'comment', 'follow', 'follow_request', 'follow_accepted'
+      actor_id: actorId,
+      post_id: postId,
+      comment_id: commentId,
+      read: false,
+      created_at: new Date().toISOString(),
+    };
+    
+    await safeKvSet(`notification:${userId}:${notificationId}`, notification);
+    console.log(`📬 Created ${type} notification for user ${userId} from ${actorId}`);
+  } catch (error) {
+    console.error('Create notification error:', error);
+  }
+}
+
+// Server startup
+console.log('🚀 ========================================');
+console.log('🚀 AuroraLink Server Starting...');
+console.log('🚀 ========================================');
+
 Deno.serve(app.fetch);
+
+console.log('✅ ========================================');
+console.log('✅ AuroraLink Server Ready!');
+console.log('✅ Health check: /make-server-29f6739b/health');
+console.log('✅ ========================================');

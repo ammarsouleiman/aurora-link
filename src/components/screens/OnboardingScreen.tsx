@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { ArrowRight, MessageCircle, Shield, Zap, Check } from 'lucide-react';
+import { ArrowRight, MessageCircle, Shield, Zap, Check } from '../ui/icons';
 import { Button } from '../ui/button';
-import { motion, AnimatePresence } from 'motion/react';
 
 interface OnboardingScreenProps {
   onComplete: () => void;
@@ -45,26 +44,16 @@ function FloatingParticles() {
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">
       {particles.map((particle) => (
-        <motion.div
+        <div
           key={particle.id}
-          className="absolute rounded-full bg-gradient-to-br from-primary/10 to-accent/10 backdrop-blur-sm"
+          className="absolute rounded-full bg-gradient-to-br from-primary/10 to-accent/10 backdrop-blur-sm animate-float"
           style={{
             width: particle.size,
             height: particle.size,
             left: `${particle.x}%`,
             top: `${particle.y}%`,
-          }}
-          animate={{
-            y: [0, -30, 0],
-            x: [0, 20, 0],
-            scale: [1, 1.1, 1],
-            opacity: [0.3, 0.6, 0.3],
-          }}
-          transition={{
-            duration: particle.duration,
-            repeat: Infinity,
-            delay: particle.delay,
-            ease: "easeInOut",
+            animationDuration: `${particle.duration}s`,
+            animationDelay: `${particle.delay}s`,
           }}
         />
       ))}
@@ -74,290 +63,168 @@ function FloatingParticles() {
 
 export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [direction, setDirection] = useState(1);
 
-  const handleNext = () => {
+  const nextSlide = () => {
     if (currentSlide < slides.length - 1) {
+      setDirection(1);
       setCurrentSlide(currentSlide + 1);
     } else {
       onComplete();
     }
   };
 
+  const prevSlide = () => {
+    if (currentSlide > 0) {
+      setDirection(-1);
+      setCurrentSlide(currentSlide - 1);
+    }
+  };
+
+  const goToSlide = (index: number) => {
+    setDirection(index > currentSlide ? 1 : -1);
+    setCurrentSlide(index);
+  };
+
   const slide = slides[currentSlide];
   const Icon = slide.icon;
 
   return (
-    <div className="onboarding-container w-full overflow-hidden relative bg-gradient-to-br from-background via-surface to-background">
+    <div className="h-screen w-full flex flex-col relative overflow-hidden bg-background">
       {/* Animated gradient background */}
-      <motion.div
-        className="absolute inset-0 opacity-30"
-        animate={{
-          background: [
-            'radial-gradient(circle at 0% 0%, var(--primary) 0%, transparent 50%)',
-            'radial-gradient(circle at 100% 100%, var(--accent) 0%, transparent 50%)',
-            'radial-gradient(circle at 0% 100%, var(--primary) 0%, transparent 50%)',
-            'radial-gradient(circle at 100% 0%, var(--accent) 0%, transparent 50%)',
-            'radial-gradient(circle at 0% 0%, var(--primary) 0%, transparent 50%)',
-          ],
-        }}
-        transition={{
-          duration: 20,
-          repeat: Infinity,
-          ease: "linear",
-        }}
-      />
+      <div className={`absolute inset-0 bg-gradient-to-br ${slide.gradient} transition-all duration-1000`} />
 
-      {/* Floating particles for kinetic effect */}
+      {/* Floating particles background */}
       <FloatingParticles />
 
-      {/* Main content - Mobile-optimized with safe area support */}
-      <div className="relative z-10 h-full w-full flex flex-col items-center justify-between px-4 py-4 xs:py-5 sm:py-6 md:py-8 lg:py-10" style={{ paddingTop: 'max(env(safe-area-inset-top), 1rem)', paddingBottom: 'max(env(safe-area-inset-bottom), 1rem)' }}>
-        {/* Logo and branding - Mobile-responsive */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center w-full"
+      {/* Skip button - Mobile optimized */}
+      <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-20">
+        <Button
+          variant="ghost"
+          onClick={onComplete}
+          className="text-white/90 hover:text-white hover:bg-white/10 backdrop-blur-sm px-4 py-2 text-sm sm:text-base"
         >
-          <motion.div
-            className="inline-flex items-center gap-2 xs:gap-2.5 sm:gap-3 md:gap-4 mb-1.5 xs:mb-2"
-            animate={{ scale: [1, 1.01, 1] }}
-            transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-          >
-            <div className="relative">
-              <div className="w-9 h-9 xs:w-10 xs:h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-xl sm:rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-xl shadow-primary/30">
-                <MessageCircle className="w-5 h-5 xs:w-6 xs:h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 text-white" strokeWidth={2.5} />
-              </div>
-              {/* Subtle glow effect */}
-              <div className="absolute inset-0 rounded-xl sm:rounded-2xl bg-gradient-to-br from-primary to-accent opacity-20 blur-xl" />
+          Skip
+        </Button>
+      </div>
+
+      {/* Main content - Centered and mobile-optimized */}
+      <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 sm:px-8 md:px-12 pt-16 pb-8">
+        {/* Icon with animation - Responsive sizing */}
+        <div 
+          className="mb-8 sm:mb-10 transition-all duration-500"
+          style={{
+            opacity: 1,
+            transform: `translateX(${direction * 0}px) scale(1)`,
+          }}
+        >
+          <div className="relative">
+            {/* Pulsing ring effect */}
+            <div className="absolute inset-0 -m-8 sm:-m-10">
+              <div className="w-full h-full rounded-full border-4 border-white/30 animate-ping" style={{ animationDuration: '2s' }} />
             </div>
-            <h1 className="text-xl xs:text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-transparent">
-              AuroraLink
-            </h1>
-          </motion.div>
-        </motion.div>
 
-        {/* Slide content */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={currentSlide}
-            initial={{ opacity: 0, x: 100 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -100 }}
-            transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
-            className="w-full max-w-[90%] xs:max-w-sm sm:max-w-md md:max-w-lg lg:max-w-4xl flex flex-col items-center text-center flex-1 justify-center py-1 xs:py-2 sm:py-4"
-          >
-            {/* Professional Icon Display - No Photos */}
-            <motion.div
-              initial={{ scale: 0.92, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.2, duration: 0.7, ease: [0.25, 0.1, 0.25, 1] }}
-              className="relative mb-6 xs:mb-8 sm:mb-10 md:mb-12 w-full px-2 sm:px-0"
-            >
-              {/* Large centered icon with gradient background */}
-              <div className="relative mx-auto w-full max-w-[280px] xs:max-w-[300px] sm:max-w-[340px] md:max-w-md px-4">
-                {/* Gradient glow background */}
-                <div className={`absolute inset-0 bg-gradient-to-br ${slide.gradient} opacity-20 blur-[60px] sm:blur-[80px] md:blur-[100px] rounded-full`} />
-                
-                {/* Main icon container */}
-                <motion.div
-                  className="relative w-full aspect-square"
-                  animate={{
-                    y: [0, -12, 0],
-                  }}
-                  transition={{
-                    duration: 4,
-                    repeat: Infinity,
-                    ease: "easeInOut",
-                  }}
-                >
-                  {/* Outer ring - animated */}
-                  <motion.div
-                    className={`relative w-full h-full mx-auto rounded-full bg-gradient-to-br ${slide.gradient} p-1 shadow-2xl`}
-                    animate={{
-                      rotate: [0, 360],
-                    }}
-                    transition={{
-                      duration: 20,
-                      repeat: Infinity,
-                      ease: "linear",
-                    }}
-                  >
-                    {/* Inner background */}
-                    <div className="w-full h-full rounded-full bg-surface/95 backdrop-blur-sm flex items-center justify-center">
-                      {/* Icon - responsive sizing */}
-                      <motion.div
-                        className={`w-[45%] h-[45%] rounded-full bg-gradient-to-br ${slide.gradient} flex items-center justify-center shadow-2xl`}
-                        animate={{
-                          scale: [1, 1.05, 1],
-                        }}
-                        transition={{
-                          duration: 3,
-                          repeat: Infinity,
-                          ease: "easeInOut",
-                        }}
-                      >
-                        <Icon className="w-[55%] h-[55%] text-white" strokeWidth={2.5} />
-                        
-                        {/* Pulsing glow effect */}
-                        <motion.div
-                          className="absolute inset-0 rounded-full bg-white/30"
-                          animate={{
-                            opacity: [0.2, 0.5, 0.2],
-                            scale: [0.9, 1.1, 0.9],
-                          }}
-                          transition={{
-                            duration: 2.5,
-                            repeat: Infinity,
-                            ease: "easeInOut",
-                          }}
-                        />
-                      </motion.div>
-                    </div>
-                  </motion.div>
-                  
-                  {/* Orbiting particles - responsive positioning */}
-                  {[0, 1, 2].map((i) => (
-                    <motion.div
-                      key={i}
-                      className={`absolute top-1/2 left-1/2 w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-gradient-to-br ${slide.gradient} shadow-lg -translate-x-1/2 -translate-y-1/2`}
-                      animate={{
-                        rotate: [i * 120, i * 120 + 360],
-                      }}
-                      transition={{
-                        duration: 8,
-                        repeat: Infinity,
-                        ease: "linear",
-                        delay: i * 0.5,
-                      }}
-                    >
-                      <div className="absolute top-0 left-0 w-3 h-3 sm:w-4 sm:h-4" style={{ 
-                        transform: `translateY(calc(-1 * min(80px, 28vw)))` 
-                      }} />
-                    </motion.div>
-                  ))}
-                </motion.div>
-                
-                {/* Feature badges */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.5, duration: 0.6 }}
-                  className="mt-6 xs:mt-8 sm:mt-10 md:mt-12 space-y-2.5 xs:space-y-3 sm:space-y-4 w-full"
-                >
-                  {slide.features.map((feature, index) => (
-                    <motion.div
-                      key={feature}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.6 + index * 0.1, duration: 0.5 }}
-                      className="flex items-center gap-2.5 xs:gap-3 bg-surface/50 backdrop-blur-sm rounded-xl sm:rounded-2xl px-3.5 xs:px-4 sm:px-5 py-2.5 xs:py-3 sm:py-3.5 border border-border/50 shadow-sm hover:shadow-md transition-all duration-300 min-h-[52px] touch-manipulation"
-                    >
-                      <div className={`flex-shrink-0 w-7 h-7 xs:w-8 xs:h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-gradient-to-br ${slide.gradient} flex items-center justify-center`}>
-                        <Check className="w-3.5 h-3.5 xs:w-4 xs:h-4 sm:w-5 sm:h-5 text-white" strokeWidth={3} />
-                      </div>
-                      <span className="text-[13px] xs:text-sm sm:text-base font-medium text-foreground leading-snug">{feature}</span>
-                    </motion.div>
-                  ))}
-                </motion.div>
-              </div>
-            </motion.div>
+            {/* Icon container */}
+            <div className="relative w-20 h-20 xs:w-24 xs:h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-full bg-white/95 shadow-2xl flex items-center justify-center ring-6 sm:ring-8 ring-white/40 backdrop-blur-sm">
+              <Icon className="w-10 h-10 xs:w-12 xs:h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 text-primary" strokeWidth={2} />
+            </div>
+          </div>
+        </div>
 
-            {/* Text content - Mobile-optimized hierarchy */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5, duration: 0.6 }}
-              className="space-y-2 xs:space-y-3 sm:space-y-4 md:space-y-6 mb-4 xs:mb-5 sm:mb-6 md:mb-8 px-2 xs:px-4 sm:px-6 md:px-8 w-full"
-            >
-              <h2 className="text-lg xs:text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-foreground leading-tight">
-                {slide.title}
-              </h2>
-              <p className="text-[13px] xs:text-sm sm:text-base md:text-lg text-muted-foreground max-w-md sm:max-w-lg md:max-w-2xl mx-auto leading-relaxed">
-                {slide.description}
-              </p>
-            </motion.div>
-          </motion.div>
-        </AnimatePresence>
+        {/* Content - Mobile responsive */}
+        <div 
+          className="text-center max-w-md lg:max-w-lg space-y-4 sm:space-y-6 transition-all duration-500"
+          style={{
+            opacity: 1,
+            transform: `translateX(${direction * 0}px)`,
+          }}
+        >
+          <h1 className="text-3xl xs:text-4xl sm:text-5xl md:text-6xl font-bold text-white tracking-tight px-2">
+            {slide.title}
+          </h1>
 
-        {/* Navigation - Mobile-optimized */}
-        <div className="w-full max-w-[90%] xs:max-w-sm sm:max-w-md md:max-w-lg space-y-4 xs:space-y-5 sm:space-y-6 md:space-y-8 px-2 xs:px-4 sm:px-6">
-          {/* Dots indicator */}
-          <div className="flex justify-center gap-1.5 xs:gap-2 sm:gap-2.5 md:gap-3">
-            {slides.map((_, index) => (
-              <motion.button
+          <p className="text-base xs:text-lg sm:text-xl text-white/90 leading-relaxed px-4 sm:px-0">
+            {slide.description}
+          </p>
+
+          {/* Features list - Mobile optimized */}
+          <div className="flex flex-col gap-3 sm:gap-4 pt-4 sm:pt-6">
+            {slide.features.map((feature, index) => (
+              <div
                 key={index}
-                onClick={() => setCurrentSlide(index)}
-                className="relative focus:outline-none touch-manipulation min-w-[44px] min-h-[44px] flex items-center justify-center"
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                aria-label={`Go to slide ${index + 1}`}
+                className="flex items-center gap-3 bg-white/10 backdrop-blur-md rounded-lg px-4 sm:px-5 py-3 sm:py-3.5 border border-white/20 transition-all duration-300"
+                style={{
+                  animationDelay: `${index * 100}ms`,
+                }}
               >
-                <div
-                  className={`h-2 rounded-full transition-all duration-300 ${
-                    index === currentSlide
-                      ? 'w-7 xs:w-8 sm:w-10 bg-gradient-to-r from-primary to-accent shadow-lg shadow-primary/30'
-                      : 'w-2 bg-muted-foreground/40 hover:bg-muted-foreground/60'
-                  }`}
-                />
-              </motion.button>
+                <div className="flex-shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                  <Check className="w-3 h-3 sm:w-4 sm:h-4 text-white" strokeWidth={3} />
+                </div>
+                <span className="text-white font-medium text-sm xs:text-base sm:text-lg">{feature}</span>
+              </div>
             ))}
           </div>
-
-          {/* Action buttons - Mobile-optimized touch targets */}
-          <div className="flex gap-2.5 xs:gap-3 sm:gap-4">
-            {currentSlide > 0 && (
-              <motion.div
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="flex-1"
-              >
-                <Button
-                  variant="outline"
-                  onClick={() => setCurrentSlide(currentSlide - 1)}
-                  className="w-full min-h-[48px] h-12 sm:h-13 md:h-14 text-[13px] xs:text-sm sm:text-base font-semibold border-2 hover:bg-muted touch-manipulation"
-                >
-                  Back
-                </Button>
-              </motion.div>
-            )}
-            <motion.div
-              className={currentSlide > 0 ? 'flex-1' : 'w-full'}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              <Button
-                onClick={handleNext}
-                className="w-full min-h-[48px] h-12 sm:h-13 md:h-14 text-[13px] xs:text-sm sm:text-base font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-xl shadow-primary/30 transition-all duration-300 touch-manipulation"
-              >
-                {currentSlide < slides.length - 1 ? (
-                  <>
-                    Next
-                    <ArrowRight className="ml-1.5 sm:ml-2 w-4 h-4 sm:w-5 sm:h-5" />
-                  </>
-                ) : (
-                  <>
-                    Get Started
-                    <ArrowRight className="ml-1.5 sm:ml-2 w-4 h-4 sm:w-5 sm:h-5" />
-                  </>
-                )}
-              </Button>
-            </motion.div>
-          </div>
-
-          {/* Skip button */}
-          {currentSlide < slides.length - 1 && (
-            <motion.button
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.6 }}
-              onClick={onComplete}
-              className="w-full text-[13px] xs:text-sm sm:text-base font-medium text-muted-foreground hover:text-foreground transition-colors py-2.5 xs:py-3 sm:py-3.5 touch-manipulation min-h-[48px]"
-            >
-              Skip
-            </motion.button>
-          )}
         </div>
       </div>
+
+      {/* Bottom navigation - Mobile optimized */}
+      <div className="relative z-10 px-6 sm:px-8 md:px-12 pb-8 sm:pb-10 space-y-6 sm:space-y-8">
+        {/* Dots indicator - Responsive sizing */}
+        <div className="flex justify-center gap-2 sm:gap-3">
+          {slides.map((_, index) => (
+            <button
+              key={index}
+              onClick={() => goToSlide(index)}
+              className={`h-2 rounded-full transition-all duration-300 ${
+                index === currentSlide
+                  ? 'w-8 sm:w-10 bg-white'
+                  : 'w-2 bg-white/40 hover:bg-white/60'
+              }`}
+              aria-label={`Go to slide ${index + 1}`}
+            />
+          ))}
+        </div>
+
+        {/* Navigation buttons - Mobile optimized */}
+        <div className="flex items-center justify-between gap-4">
+          <Button
+            variant="ghost"
+            onClick={prevSlide}
+            disabled={currentSlide === 0}
+            className="text-white/90 hover:text-white hover:bg-white/10 backdrop-blur-sm disabled:opacity-0 disabled:pointer-events-none px-4 sm:px-6 py-2 sm:py-3 text-sm sm:text-base"
+          >
+            Previous
+          </Button>
+
+          <Button
+            onClick={nextSlide}
+            size="lg"
+            className="bg-white hover:bg-white/90 shadow-xl hover:shadow-2xl transition-all duration-300 gap-2 px-6 sm:px-8 py-2 sm:py-3 text-sm sm:text-base font-semibold"
+          >
+            <span className="text-[#0057FF]">{currentSlide === slides.length - 1 ? "Get Started" : "Next"}</span>
+            <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 text-[#0057FF]" />
+          </Button>
+        </div>
+      </div>
+
+      <style dangerouslySetInnerHTML={{
+        __html: `
+          @keyframes float {
+            0%, 100% {
+              transform: translate(0, 0) scale(1);
+              opacity: 0.3;
+            }
+            50% {
+              transform: translate(20px, -30px) scale(1.1);
+              opacity: 0.6;
+            }
+          }
+
+          .animate-float {
+            animation: float ease-in-out infinite;
+          }
+        `
+      }} />
     </div>
   );
 }

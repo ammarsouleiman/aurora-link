@@ -1,22 +1,21 @@
 "use client";
 
-import { Toaster as Sonner, ToasterProps } from "sonner@2.0.3";
+// Local toast implementation - no external dependencies
+// Toasts are now managed via /utils/toast.ts
+// This component is kept for compatibility but does nothing
+
+interface ToasterProps {
+  position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'top-center' | 'bottom-center';
+  expand?: boolean;
+  richColors?: boolean;
+  duration?: number;
+  theme?: 'light' | 'dark' | 'system';
+}
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  return (
-    <Sonner
-      theme="light"
-      className="toaster group"
-      style={
-        {
-          "--normal-bg": "var(--popover)",
-          "--normal-text": "var(--popover-foreground)",
-          "--normal-border": "var(--border)",
-        } as React.CSSProperties
-      }
-      {...props}
-    />
-  );
+  // Toast container is now managed by /utils/toast.ts
+  // This component is a no-op for compatibility
+  return null;
 };
 
 export { Toaster };

@@ -192,6 +192,52 @@ export interface UserStories {
   latest_story?: Story;
 }
 
+// Instagram-style Post Types
+export interface Post {
+  id: string;
+  user_id: string;
+  user: User;
+  type: 'photo' | 'reel';
+  media_url: string;
+  caption?: string;
+  location?: string;
+  created_at: string;
+  likes_count: number;
+  comments_count: number;
+  is_liked?: boolean;
+  is_saved?: boolean;
+}
+
+export interface Comment {
+  id: string;
+  post_id: string;
+  user_id: string;
+  user: User;
+  text: string;
+  created_at: string;
+}
+
+export interface Like {
+  id: string;
+  post_id: string;
+  user_id: string;
+  created_at: string;
+}
+
+export interface Follow {
+  follower_id: string;
+  following_id: string;
+  created_at: string;
+}
+
+export interface UserProfile extends User {
+  posts_count?: number;
+  followers_count?: number;
+  following_count?: number;
+  is_following?: boolean;
+  is_followed_by?: boolean;
+}
+
 // API Response Types
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -199,7 +245,26 @@ export interface ApiResponse<T = any> {
   error?: string;
   details?: string;
   fromCache?: boolean; // Indicates if data was loaded from offline cache
+  requiresReauth?: boolean; // Indicates if the error requires re-authentication
 }
+
+// View State Type
+export type ViewState = 
+  | 'onboarding' 
+  | 'auth' 
+  | 'home' 
+  | 'feed'
+  | 'explore'
+  | 'create-post'
+  | 'conversation' 
+  | 'new-chat' 
+  | 'settings' 
+  | 'call' 
+  | 'story-viewer' 
+  | 'story-composer'
+  | 'post-detail'
+  | 'profile-view'
+  | 'enhanced-profile';
 
 // UI State Types
 export type ViewState = 'onboarding' | 'auth' | 'home' | 'conversation' | 'profile' | 'settings' | 'contacts' | 'calls' | 'search' | 'group-create' | 'call' | 'story-view' | 'story-create' | 'profile-view';

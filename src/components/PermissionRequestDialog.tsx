@@ -1,5 +1,5 @@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
-import { Camera, Mic, Video } from 'lucide-react';
+import { Camera, Mic, Video } from './ui/local-icons';
 
 interface PermissionRequestDialogProps {
   open: boolean;

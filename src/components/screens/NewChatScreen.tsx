@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, Search, Users, UserPlus, Phone } from 'lucide-react';
+import { ArrowLeft, Search, Users, UserPlus, Phone } from '../ui/icons';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -28,12 +28,14 @@ interface NewChatScreenProps {
   currentUser: UserType;
   onBack: () => void;
   onConversationCreated: (conversationId: string) => void;
+  onViewProfile?: (userId: string) => void;
 }
 
 export function NewChatScreen({
   currentUser,
   onBack,
   onConversationCreated,
+  onViewProfile,
 }: NewChatScreenProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -209,44 +211,58 @@ export function NewChatScreen({
               const isSelected = selectedUsers.includes(contact.id);
               
               return (
-                <button
+                <div
                   key={contact.id}
-                  onClick={() => toggleUserSelection(contact.id)}
-                  className={`w-full flex items-center gap-4 p-3.5 rounded-lg transition-all duration-200 ${
+                  className={`w-full flex items-center gap-3 p-3.5 rounded-lg transition-all duration-200 ${
                     isSelected ? 'bg-primary/10 ring-2 ring-primary/30' : 'hover:bg-[var(--hover-surface)]'
                   }`}
                 >
-                  <Avatar
-                    src={contact.avatar_url}
-                    alt={contact.full_name}
-                    size="lg"
-                    status={contact.is_online ? 'online' : 'offline'}
-                    showBorder={true}
-                  />
-                  
-                  <div className="flex-1 text-left min-w-0">
-                    <h4 className="truncate">{contact.full_name}</h4>
-                    <div className="flex items-center gap-2">
-                      <ContactLastSeen user={contact} />
-                      {contact.status_message && !contact.is_online && (
-                        <span className="text-sm text-muted-foreground truncate">
-                          • {contact.status_message}
-                        </span>
-                      )}
-                      {!contact.status_message && !contact.is_online && (
-                        <span className="text-sm text-muted-foreground truncate">
-                          @{contact.username}
-                        </span>
-                      )}
+                  <button
+                    onClick={() => toggleUserSelection(contact.id)}
+                    className="flex items-center gap-4 flex-1 min-w-0 text-left"
+                  >
+                    <Avatar
+                      src={contact.avatar_url}
+                      alt={contact.full_name}
+                      size="lg"
+                      status={contact.is_online ? 'online' : 'offline'}
+                      showBorder={true}
+                    />
+                    
+                    <div className="flex-1 min-w-0">
+                      <h4 className="truncate">{contact.full_name}</h4>
+                      <div className="flex items-center gap-2">
+                        <ContactLastSeen user={contact} />
+                        {contact.status_message && !contact.is_online && (
+                          <span className="text-sm text-muted-foreground truncate">
+                            • {contact.status_message}
+                          </span>
+                        )}
+                        {!contact.status_message && !contact.is_online && (
+                          <span className="text-sm text-muted-foreground truncate">
+                            @{contact.username}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  {isSelected && (
-                    <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center">
-                      <UserPlus className="w-4 h-4 text-primary-foreground" />
-                    </div>
+                    {isSelected && (
+                      <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center">
+                        <UserPlus className="w-4 h-4 text-primary-foreground" />
+                      </div>
+                    )}
+                  </button>
+
+                  {/* View Profile Button */}
+                  {onViewProfile && (
+                    <button
+                      onClick={() => onViewProfile(contact.id)}
+                      className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-primary to-accent text-white text-xs font-medium hover:opacity-90 transition-opacity whitespace-nowrap"
+                    >
+                      View Profile
+                    </button>
                   )}
-                </button>
+                </div>
               );
             })}
           </div>

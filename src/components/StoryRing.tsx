@@ -1,8 +1,7 @@
-import { Plus } from 'lucide-react';
+import { Plus } from './ui/icons';
 import { Avatar } from './Avatar';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import type { User, UserStories } from '../utils/types';
-import { motion } from 'motion/react';
 
 interface StoryRingProps {
   userStories?: UserStories;
@@ -47,10 +46,8 @@ export function StoryRing({ userStories, isMyStory, currentUser, onClick, onAddS
   return (
     <div className="flex flex-col items-center gap-1 min-w-[68px] group">
       {/* Story Ring Container - Changed to div to avoid nested buttons */}
-      <motion.div
-        className="relative cursor-pointer"
-        whileTap={{ scale: 0.95 }}
-        transition={{ duration: 0.1 }}
+      <div
+        className="relative cursor-pointer active:scale-95 transition-transform duration-100"
       >
         {/* Animated Gradient Ring for Unviewed Stories - WhatsApp Exact Colors */}
         {hasUnviewed && !isMyStory && (
@@ -152,18 +149,16 @@ export function StoryRing({ userStories, isMyStory, currentUser, onClick, onAddS
           
           {/* Add Story Plus Button - WhatsApp Style (for My Story, always visible) */}
           {isMyStory && (
-            <motion.button
+            <button
               onClick={handlePlusClick}
-              className="absolute bottom-0 right-0 w-5 h-5 bg-primary rounded-full flex items-center justify-center border-[2.5px] border-background shadow-sm hover:bg-primary/90 transition-colors z-10 pointer-events-auto focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1"
-              whileTap={{ scale: 0.9 }}
-              transition={{ duration: 0.1 }}
+              className="absolute bottom-0 right-0 w-5 h-5 bg-primary rounded-full flex items-center justify-center border-[2.5px] border-background shadow-sm hover:bg-primary/90 transition-colors z-10 pointer-events-auto focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 active:scale-90 transition-transform duration-100"
               aria-label="Add status"
             >
               <Plus className="w-[14px] h-[14px] text-white" strokeWidth={3} />
-            </motion.button>
+            </button>
           )}
         </div>
-      </motion.div>
+      </div>
 
       {/* User Name - WhatsApp Style */}
       <div className="flex flex-col items-center gap-0 max-w-[68px]">

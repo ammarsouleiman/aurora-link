@@ -10,8 +10,7 @@
  * This ensures unlimited messaging without session timeouts.
  */
 
-import { createClient } from './supabase/client';
-import { projectId } from './supabase/info';
+import { createClient, projectId } from './supabase/direct-api-client';
 
 // Token will be refreshed 5 minutes before it expires
 const REFRESH_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
@@ -51,10 +50,31 @@ function decodeJWT(token: string): { exp?: number; iss?: string } | null {
  */
 function validateTokenProject(token: string): boolean {
   const decoded = decodeJWT(token);
-  if (!decoded) return false;
+  if (!decoded) {
+    console.error('[TokenManager] Cannot decode token for validation');
+    return false;
+  }
   
   const expectedIssuer = `https://${projectId}.supabase.co/auth/v1`;
-  return decoded.iss === expectedIssuer;
+  const isValid = decoded.iss === expectedIssuer;
+  
+  if (!isValid) {
+    console.error('[TokenManager] ❌ TOKEN PROJECT MISMATCH!');
+    console.error('[TokenManager] Expected:', expectedIssuer);
+    console.error('[TokenManager] Got:', decoded.iss);
+    console.error('[TokenManager] This token is from a DIFFERENT Supabase project!');
+    console.error('[TokenManager] Clearing invalid token...');
+    
+    // Clear the invalid token immediately
+    tokenCache = null;
+    const supabase = createClient();
+    supabase.auth.signOut().catch(err => {
+      console.error('[TokenManager] Error signing out:', err);
+    });
+    localStorage.clear();
+  }
+  
+  return isValid;
 }
 
 /**
@@ -119,11 +139,29 @@ async function refreshToken(): Promise<string | null> {
     if (error) {
       console.error('[TokenManager] ❌ Refresh failed:', error.message);
       
+      // Check if this is a network error (not an auth error)
+      const isNetworkError = 
+        error.message === 'Failed to fetch' ||
+        error.message.includes('network') ||
+        error.message.includes('fetch') ||
+        error.message.includes('NetworkError');
+      
+      if (isNetworkError) {
+        console.warn('[TokenManager] Network error during refresh - using cached token if available');
+        // For network errors, use cached token as fallback if still valid
+        if (tokenCache?.token && !isExpired(tokenCache.expiresAt)) {
+          console.log('[TokenManager] ⚠️ Using cached token as fallback (network error)');
+          return tokenCache.token;
+        }
+        return null;
+      }
+      
       // Check if this is a terminal error (session truly invalid)
       const isTerminalError = 
         error.message.includes('Invalid Refresh Token') ||
         error.message.includes('refresh_token_not_found') ||
-        error.message.includes('invalid_grant');
+        error.message.includes('invalid_grant') ||
+        error.message.includes('No refresh token');
       
       if (isTerminalError) {
         console.error('[TokenManager] 🚨 Terminal error - session is invalid');
@@ -186,6 +224,16 @@ async function refreshToken(): Promise<string | null> {
  */
 export async function getValidAccessToken(): Promise<string | null> {
   try {
+    // CRITICAL: Check if nuclear clear just happened - clear token cache immediately
+    const nuclearClearInProgress = sessionStorage.getItem('nuclear_clear_in_progress');
+    const nuclearClearPerformed = sessionStorage.getItem('nuclear_clear_performed');
+    
+    if (nuclearClearInProgress === 'true' || nuclearClearPerformed === 'true') {
+      console.log('[TokenManager] Nuclear clear detected - clearing token cache');
+      tokenCache = null;
+      return null;
+    }
+    
     const supabase = createClient();
     
     // First check if we even have a session
@@ -328,6 +376,16 @@ export function stopBackgroundRefresh() {
 export function clearTokenCache() {
   console.log('[TokenManager] Clearing token cache');
   tokenCache = null;
+  stopBackgroundRefresh();
+}
+
+/**
+ * Force clear token cache (for emergency situations like nuclear clear)
+ */
+export function forceClearTokenCache() {
+  console.log('[TokenManager] 🚨 FORCE clearing token cache');
+  tokenCache = null;
+  isRefreshing = false;
   stopBackgroundRefresh();
 }
 

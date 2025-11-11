@@ -6,7 +6,7 @@
  */
 
 import { emergencySessionClear, clearAuthSession, recoverSession, diagnoseAndFixSessionErrors } from './session-recovery';
-import { createClient } from './supabase/client';
+import { createClient } from './supabase/direct-api-client';
 
 /**
  * ONE-CLICK FIX: Clears all auth data and forces fresh login

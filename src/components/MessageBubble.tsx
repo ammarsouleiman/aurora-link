@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { Check, CheckCheck, Reply, Copy, Trash2, MoreVertical, Clock, AlertCircle } from 'lucide-react';
+import { Check, CheckCheck, Reply, Copy, Trash2, MoreVertical, Clock, AlertCircle } from './ui/icons';
 import { Avatar } from './Avatar';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer';
+import { StoryReplyPreview } from './StoryReplyPreview';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import type { Message } from '../utils/types';
 
@@ -114,7 +115,10 @@ export function MessageBubble({
     });
   };
 
-  // Check read status
+  // Check read status - WhatsApp Style Message Receipts
+  // ✓ Single gray checkmark = Sent to server
+  // ✓✓ Double gray checkmarks = Delivered to recipient's device
+  // ✓✓ Double blue checkmarks = Read by recipient
   const isRead = message.statuses?.some(
     (s) => s.user_id !== message.sender_id && s.status === 'read'
   );
@@ -319,6 +323,16 @@ export function MessageBubble({
           </a>
         )}
 
+        {/* Story Reply Preview - WhatsApp Style */}
+        {message.type === 'story_reply' && message.story_reply && (
+          <div className="mx-[9px] mt-[6px] mb-1">
+            <StoryReplyPreview 
+              storyReply={message.story_reply} 
+              isOwnMessage={isSent}
+            />
+          </div>
+        )}
+
         {/* Replied-to message preview - LIGHT MODE ONLY */}
         {message.reply_to_message && (
           <div className="mx-[9px] mt-[6px] mb-1 pl-2 pr-1 py-1 border-l-4 border-[#00a884] bg-black/5 rounded">
@@ -335,8 +349,8 @@ export function MessageBubble({
           </div>
         )}
 
-        {/* Text Message */}
-        {(message.type === 'text' || !message.type) && message.body && (
+        {/* Text Message (including story replies) */}
+        {(message.type === 'text' || message.type === 'story_reply' || !message.type) && message.body && (
           <div className="px-[9px] pt-[6px] pb-[8px]">
             <p
               className="text-[14.2px] text-[#111b21] break-words whitespace-pre-wrap"
@@ -345,7 +359,7 @@ export function MessageBubble({
               {message.body}
             </p>
             
-            {/* Timestamp and status inside bubble */}
+            {/* Timestamp and WhatsApp-Style Read Receipts */}
             <div className="flex items-center justify-end gap-1 mt-1">
               <span className="text-[11px] text-[#667781]">
                 {formatTime(message.created_at)}
@@ -353,15 +367,20 @@ export function MessageBubble({
               {isSent && (
                 <>
                   {message.pending ? (
-                    <Clock className="w-4 h-4 text-[#667781] animate-pulse" />
+                    // Sending: Clock icon
+                    <Clock className="w-4 h-4 text-[#667781]" />
                   ) : message.failed ? (
+                    // Failed: Red alert icon
                     <AlertCircle className="w-4 h-4 text-red-500" />
                   ) : isRead ? (
-                    <CheckCheck className="w-4 h-4 text-[#53bdeb]" />
+                    // Read: Double BLUE checkmarks ✓✓
+                    <CheckCheck className="w-4 h-4 text-[#53bdeb]" strokeWidth={2.5} />
                   ) : isDelivered ? (
-                    <CheckCheck className="w-4 h-4 text-[#667781]" />
+                    // Delivered: Double GRAY checkmarks ✓✓
+                    <CheckCheck className="w-4 h-4 text-[#667781]" strokeWidth={2.5} />
                   ) : (
-                    <Check className="w-4 h-4 text-[#667781]" />
+                    // Sent: Single GRAY checkmark ✓
+                    <Check className="w-4 h-4 text-[#667781]" strokeWidth={2.5} />
                   )}
                 </>
               )}
@@ -393,15 +412,15 @@ export function MessageBubble({
           {isSent && (
             <>
               {message.pending ? (
-                <Clock className="w-3.5 h-3.5 text-[#667781] animate-pulse" />
+                <Clock className="w-3.5 h-3.5 text-[#667781]" />
               ) : message.failed ? (
                 <AlertCircle className="w-3.5 h-3.5 text-red-500" />
               ) : isRead ? (
-                <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
+                <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" strokeWidth={2.5} />
               ) : isDelivered ? (
-                <CheckCheck className="w-3.5 h-3.5 text-[#667781]" />
+                <CheckCheck className="w-3.5 h-3.5 text-[#667781]" strokeWidth={2.5} />
               ) : (
-                <Check className="w-3.5 h-3.5 text-[#667781]" />
+                <Check className="w-3.5 h-3.5 text-[#667781]" strokeWidth={2.5} />
               )}
             </>
           )}

@@ -1,5 +1,5 @@
 import { useState, useRef, KeyboardEvent } from 'react';
-import { Send, Smile, Mic, Paperclip, X } from 'lucide-react';
+import { Send, Smile, Mic, Paperclip, X } from './ui/icons';
 import { Button } from './ui/button';
 import { EmojiPicker } from './EmojiPicker';
 import { VoiceRecorder } from './VoiceRecorder';
@@ -92,7 +92,7 @@ export function MessageComposer({
     setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleVoiceRecordingComplete = (audioBlob: Blob) => {
+  const handleVoiceRecordingComplete = (audioBlob: Blob, duration: number) => {
     const audioFile = new File([audioBlob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
     onSend('', [audioFile]);
     setIsRecording(false);

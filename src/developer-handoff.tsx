@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Code, Database, Palette, Component, Smartphone, Globe, Copy, Check } from 'lucide-react';
+import { Code, Database, Palette, Component, Smartphone, Globe, Copy, Check } from './components/ui/icons';
 import { Button } from './components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import designTokens from './design-tokens.json';
@@ -720,7 +720,7 @@ fun MessageBubble(
                     <li><strong>Backend:</strong> Supabase (Auth, Database, Storage, Realtime)</li>
                     <li><strong>UI Components:</strong> shadcn/ui</li>
                     <li><strong>Icons:</strong> Lucide React</li>
-                    <li><strong>Animations:</strong> Motion (Framer Motion)</li>
+                    <li><strong>Animations:</strong> Pure CSS (No external animation libraries)</li>
                   </ul>
                 </div>
 
@@ -730,12 +730,11 @@ fun MessageBubble(
 {`# Install dependencies
 npm install @supabase/supabase-js
 npm install lucide-react
-npm install motion
 
 # Or with yarn
-yarn add @supabase/supabase-js lucide-react motion`}
+yarn add @supabase/supabase-js lucide-react`}
                   </pre>
-                  <CopyButton text={`npm install @supabase/supabase-js lucide-react motion`} section="npm-install" />
+                  <CopyButton text={`npm install @supabase/supabase-js lucide-react`} section="npm-install" />
                 </div>
 
                 <div className="relative bg-muted rounded-lg p-4">

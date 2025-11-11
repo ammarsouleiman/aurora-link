@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Mail, Shield, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Mail, Shield, CheckCircle2, AlertCircle } from '../ui/icons';
 import { Button } from '../ui/button';
 import { OTPInput } from '../OTPInput';
 import { toast } from '../../utils/toast';
